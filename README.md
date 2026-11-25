@@ -1,0 +1,34 @@
+# Flagstaff, AZ — Underwriting map & comp picker
+
+Static site (no build step for the page): the Santa Rosa Beach / Gulf Shores **Underwritten Properties** page (`underwritten.html`) ported to Flagstaff and reworked for picking comps. `index.html` forwards to `underwritten.html`, keeping any `#p=` link. There are no UW sheets yet: **+ Add listing** puts a Zillow listing on the map to rank its comps, build a comp set and download a UW CSV.
+
+## What is new on this page
+
+- **Quick bar above the map:** Bedrooms (Studio, 1–5, 6+), Baths (1, 1.5 … 3.5, 4+) and Setting chips. Tap several to combine them; each chip shows how many comps it would give with the other filters. They are the same filters as the panel's Filters tab and go into the `#beds=…&ba=…` link.
+- **Map built for selecting comps:**
+  - *Click a dot to* **Select** (default) or **See details** (the full popup). Hovering a dot shows a summary card.
+  - **Box select** button, or **Shift + drag** anywhere: selects every comp shown inside the box. Grey (filtered-out) dots are never selected.
+  - Selected comps get a blue ring; the **tray** at the bottom copies them for the UW sheet, opens the comp list, zooms to them or clears them. The selection is remembered in this browser (localStorage).
+  - Basemaps: **Terrain** (Esri Light Gray over Esri World Hillshade, the default), Topo, Satellite, Streets. Whole zoom steps only (fractional zoom drew tile seams in Chrome).
+- **City and mountains marked** (View box / Layers tab toggles): the City of Flagstaff limits (US Census TIGER, GEOID 0423620) with the 1 km downtown ring round Heritage Square; the San Francisco Peaks and 15 other named peaks with heights in feet (OpenStreetMap; Humphreys Peak = USGS 12,633 ft); the Arizona Snowbowl ski-area outline; NAU, Lowell Observatory, the airport, Buffalo Park; and the county communities (Kachina Village, Mountainaire, Fort Valley, Doney Park).
+- **Comp list** (below the map, `uw-list.js`): a sortable table of *Selected* / *All shown on the map* / *Matches for the selected target*, one tick box per row (= the same selection). Copy formats:
+  - **UW sheet rows**: the sheet's 15 comp columns (URL, revenue, bedrooms, sleeps, ADR, occupancy %, 8 amenity 1/0 flags in the target sheet's own column order, notes), revenue high to low; the same text as every other copy on the page. Optional header row with the sheet's own column names.
+  - **Full details**: every table column plus the URL, the amenity 1/0 columns, mountain view and the note, in the table's order.
+  - **Download CSV** of the rows in view (UTF-8 with BOM, opens cleanly in Excel).
+
+## Data
+
+- Workbook `../Flagstaff - AZ.xlsx` (snapshot 2026-11-25), sheet `Cleaned_Data`: 887 rows, **856 entire homes** used as comps (29 private rooms and 2 hotel rooms left out, by Base_Table `roomType`). Three Oak Creek Canyon cabins are billed as Sedona 86336; they sit with Kachina Village.
+- `../notebooks/market_common.py` (same API as the other ports) gives each home:
+  - its **area**: Ward clusters (k=6) of the coordinates: Downtown & NAU 242, East Flagstaff 210, Southwest Flagstaff 180, Fort Valley 29, Doney Park & Timberline 70, Kachina Village & Mountainaire 125. A new target takes the nearest listing's area (856 of 856 in a leave-one-out test);
+  - its **setting** (stored where the coastal pages keep "position on the water"): Downtown (within 1 km of Heritage Square) 159 / In the city (inside the TIGER city limits) 457 / Outside the city 240. A setting chosen on a target's card wins;
+  - km to downtown and km to the Arizona Snowbowl outline; the Airbnb `SYSTEM_VIEW_MOUNTAIN` flag as the `mountain_view` amenity (252 homes);
+  - size bucket 1-2BR / 3BR / 4BR / 5BR+ and tiers, as the other markets.
+- No default revenue floor (`minRevDefault` null): the market median is about $47k (top 25% from $66k, top 10% from $91k), so the coastal pages' $90k would hide most homes. Set one with "Revenue ≥" above the map.
+- `../notebooks/flagstaff_city_tiger.json` (TIGERweb, fetched 2026-11-26) and `../notebooks/flagstaff_geo.json` (Overpass, 2026-11-26) are the cached geography; the build copies them into `data/geo.json`.
+
+## Pipeline
+
+1. `python scripts/build_underwritten.py` (the `str` venv; add `--offline` to skip geocoding) writes `data/*.json`, `tests/fixtures/place_check.json` and `reports/comp_audit.csv`, then runs `node tests/test_underwritten.mjs` (37 checks: browser vs Python location rules on 1,225 grid points and all 856 listings, copy rows, matching).
+2. Browser test: `NODE_PATH=<playwright-core node_modules> node tests/test_underwritten_browser.mjs` (comp picker: chips, click and box select, tray and list copies, reload; then add a listing, match, copy, download, phone width).
+3. Drop "UW'ing - NN.csv" exports into `underwriting/source_csv/` and rebuild to add underwritten targets. New sheets start from `underwriting/template/UW'ing - template (from Island Park 112).csv`, whose comp columns are Hot tub, Firepit, Game room, Outdoor Dining, Pack and Play, Sauna, Playground, Waterfront.
