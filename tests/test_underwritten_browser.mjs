@@ -75,6 +75,7 @@ check(s0.n === 856, "856 Airbnb comps loaded (" + s0.n + ")");
 check(s0.minRev === null && s0.shown === 856, "no default revenue floor: " + s0.shown + " of 856 shown");
 check(/^856\n/.test(s0.hero) && s0.village && s0.peaks, "hero shows the 856 comps; city limits and mountains on by default");
 check(s0.labels.some((t) => /Humphreys Peak12,633 ft/.test(t)) && s0.labels.some((t) => /Mount Elden/.test(t)) && s0.downtown && s0.ski, "Humphreys Peak (12,633 ft), Mount Elden, downtown and Arizona Snowbowl marked");
+check(await ev(() => UW.ui.selected === null && !location.hash.includes("p=") && /Overview/.test(document.querySelector(".uw-pickctl [data-pk=overview]").textContent)), "starts in the overview: no target selected, an Overview button on the map");
 
 console.log("\n1a. ZILLOW SEARCH STRIP\n");
 {
@@ -158,11 +159,51 @@ await page.click('[data-l="fmt"][data-v="full"]'); await page.waitForTimeout(100
 await page.click('[data-l="copy-all"]'); await page.waitForTimeout(200);
 const lf = (await clip()).split("\n");
 check(lf.length === pk2.length + 1 && lf[0].startsWith("Listing URL\tTitle\tRevenue Potential\tBedrooms\tBaths\tSleeps") && lf.slice(1).every((l) => l.split("\t").length === lf[0].split("\t").length), "Full details: header + " + (lf.length - 1) + " rows, " + lf[0].split("\t").length + " columns each");
+// Back to map: the list's bar stays in view while you scroll the table, and one click returns to the map.
+await page.click('[data-l="view"][data-v="shown"]'); await page.waitForTimeout(300);
+await ev(() => window.scrollTo(0, document.querySelector(".uw-clist__bar").getBoundingClientRect().top + window.scrollY + 160)); await page.waitForTimeout(300);
+const barTop = await ev(() => document.querySelector(".uw-clist__bar").getBoundingClientRect().top);
+check(barTop > 50 && barTop < 100, "the comp list's bar stays under the page header while you scroll the table (" + Math.round(barTop) + " px from the top)");
+await page.click('[data-l="back"]'); await page.waitForTimeout(1200);
+const mapRect = await ev(() => { const r = UW.mapApi.map.getContainer().getBoundingClientRect(); return { top: r.top, bottom: r.bottom }; });
+check(mapRect.top > -20 && mapRect.top < 300 && mapRect.bottom > 500, "“↑ Back to map” scrolls back up to the map");
+await page.click('[data-l="view"][data-v="picked"]'); await page.waitForTimeout(200);
 await page.uncheck('[data-l="header"]'); await page.click('[data-l="fmt"][data-v="sheet"]');
 await page.click('.uw-clist__t tbody tr:first-child input[data-l="tick"]'); await page.waitForTimeout(200);
 check(await ev((n) => UW.ui.picked.size === n - 1, pk2.length), "unticking a row removes it from the selection");
 await page.reload({ waitUntil: "networkidle" }); await page.waitForTimeout(600);
 check(await ev((n) => UW.ui.picked.size === n - 1 && location.hash.includes("beds=3"), pk2.length), "selection and filters survive a reload");
+// Removing: Alt + drag and the Box remove button unselect the picked comps inside a box; Clear offers Undo; a new tab starts empty.
+await ev(() => { UW.clearPicked(); UW.resetFilters(); document.getElementById("uw-leaflet").scrollIntoView({ block: "center" }); UW.mapApi.map.setView([35.199, -111.652], 14, { animate: false }); });
+await page.waitForTimeout(900);
+const rm = await ev(() => { const m = UW.mapApi.map, r = m.getContainer().getBoundingClientRect(), W = r.width, H = r.height;
+  const at = (l) => m.latLngToContainerPoint([l.lat, l.lng]);
+  const ok = (l) => { const p = at(l); return p.y > 80 && p.y < H - 110; };
+  const right = UW.listings.filter((l) => ok(l) && at(l).x > W * 0.62 && at(l).x < W - 30).slice(0, 3), left = UW.listings.filter((l) => ok(l) && at(l).x > W * 0.2 && at(l).x < W * 0.5).slice(0, 2);
+  UW.pickMany(right.concat(left).map((l) => l.id));
+  return { right: right.map((l) => l.id), left: left.map((l) => l.id), x0: r.left + W * 0.55, x1: r.right - 12, y0: r.top + 70, y1: r.bottom - 100 }; });
+check(rm.right.length === 3 && rm.left.length === 2, "set up 3 picked comps on the right of the map and 2 on the left");
+await page.keyboard.down("Alt");
+await page.mouse.move(rm.x0, rm.y0); await page.mouse.down(); await page.mouse.move(rm.x1, rm.y1, { steps: 6 }); await page.mouse.up();
+await page.keyboard.up("Alt");
+await page.waitForTimeout(300);
+let left1 = await ev(() => [...UW.ui.picked]);
+check(left1.length === 2 && rm.left.every((id) => left1.includes(id)), "Alt + drag removes the 3 picked comps inside the box and keeps the 2 outside it");
+await ev((ids) => UW.pickMany(ids), rm.right);
+await page.click(".uw-pickctl [data-pk=boxrm]");
+await page.mouse.move(rm.x0, rm.y0); await page.mouse.down(); await page.mouse.move(rm.x1, rm.y1, { steps: 6 }); await page.mouse.up();
+await page.waitForTimeout(300);
+left1 = await ev(() => [...UW.ui.picked]);
+check(left1.length === 2 && rm.left.every((id) => left1.includes(id)) && !(await ev(() => document.querySelector(".uw-leaflet").classList.contains("is-boxing"))), "the Box remove button does the same with a plain drag, then switches itself off");
+await page.click('.uw-tray [data-tr="clear"]'); await page.waitForTimeout(200);
+check(await ev(() => UW.ui.picked.size === 0), "Clear empties the selection");
+await page.click(".uw-toast__act"); await page.waitForTimeout(200);
+const undone = await ev((ids) => ({ n: UW.ui.picked.size, has: ids.map((id) => UW.ui.picked.has(id)), toasts: [...document.querySelectorAll(".uw-toast")].map((t) => t.innerText) }), rm.left);
+check(undone.n === 2 && undone.has.every(Boolean), "Undo in the message brings the cleared comps back " + JSON.stringify(undone));
+const fresh = await ctx.newPage();
+await fresh.goto(BASE + "underwritten.html", { waitUntil: "networkidle" }); await fresh.waitForTimeout(500);
+check(await fresh.evaluate(() => UW.ui.picked.size === 0), "a new tab starts with nothing selected (the selection is kept per tab, not forever)");
+await fresh.close();
 await ev(() => { UW.clearPicked(); UW.resetFilters(); });
 await page.waitForTimeout(200);
 
@@ -196,6 +237,9 @@ await page.waitForTimeout(400);
 const pid = "z99999999";
 const t1 = await ev((pid) => { const p = UW.property(pid); return p && { geo: p.geo, place: p.place, beds: p.versions[0].profile.beds, hotTub: p.versions[0].profile.flags.hot_tub, opexMissing: p.versions[0].outputs.opexMissing, checks: p.versions[0].checks.map((c) => c.kind) }; }, pid);
 check(!!t1 && !!t1.geo, "the listing is saved and pinned");
+const saved = await ev((pid) => { const l = UW.property(pid).listing; return { price: l.inputs.price, facts: l.facts, url: l.url }; }, pid);
+check(saved.price === 289000 && saved.facts.beds === 3 && saved.facts.baths === 2 && saved.facts.sqft === 1800 && saved.url === URL_, "what the dialog saved: " + JSON.stringify(saved));
+check(await ev(() => UW.ui.selected === null), "adding a listing doesn't take the map over: still in the overview until you click it");
 const st1 = await ev((pid) => { const s = UW.property(pid).versions[0].inputs.setup; return UWRules.STANDARD_SETUP.map((x) => { const m = s.find((y) => UWRules.setupKey(y.label) === UWRules.setupKey(x.label)); return m ? m.label + " " + m.amount : "MISSING " + x.label; }); }, pid);
 check(st1.every((x) => !/^MISSING|null$/.test(x)), "the new sheet carries the five standard setup lines: " + st1.join(" · "));
 check(t1 && t1.place && t1.place.zone === "kachina" && t1.place.loc === "Outside the city" && t1.place.areaName === "Kachina Village & Mountainaire", "pin reads Kachina Village & Mountainaire, outside the city: " + JSON.stringify(t1 && t1.place));
@@ -255,6 +299,47 @@ await page.click(".uw-viewctl [data-view=all]");
 await page.waitForTimeout(300);
 const va = await ev(() => UW.ui.score === "all" && ["areas", "labels", "ghosts", "ranks", "ring", "village", "peaks", "places"].every((k) => UW.ui.layers[k]));
 check(va, "Show everything restores every dot and marking");
+
+console.log("\n3c. OVERVIEW AND PROPERTY MODE\n");
+{
+  const state = () => ev(() => ({ sel: UW.ui.selected, hash: location.hash, z: UW.mapApi.map.getZoom(), c: UW.mapApi.map.getCenter(), beds: UW.ui.filters.beds.slice(), shown: UW.matchSet.size,
+    tab: document.querySelector(".uw-tab[aria-selected=true]").id, prop: document.querySelector(".uw-leaflet").classList.contains("is-property"), ctl: document.querySelector(".uw-pickctl").innerText, popup: !!document.querySelector(".uw-leaflet .leaflet-popup") }));
+  const wholeMap = (s) => s.z === 11 && Math.abs(s.c.lat - 35.205) < 0.01 && Math.abs(s.c.lng + 111.63) < 0.01;
+  const keepId = await ev(() => { const l = UW.listings[7]; UW.togglePick(l.id, true); return l.id; });
+  await ev(() => UW.select(null)); await page.waitForTimeout(900);
+  let s = await state();
+  check(s.sel === null && wholeMap(s) && s.tab === "uw-t-targets" && !s.prop && s.shown === 856, "overview: nothing selected, the whole-Flagstaff view, Targets tab, all 856 comps");
+  await page.click("#uw-p-targets [data-act=select][data-pid=" + pid + "]"); await page.waitForTimeout(1300);
+  s = await state();
+  check(s.sel === pid && s.z >= 12 && s.prop && /Viewing only/.test(s.ctl) && /1234 Toho Trl/.test(s.ctl) && /p=z99999999/.test(s.hash) && s.tab === "uw-t-comps", "clicking a target enters property mode: zoomed to it, “Viewing only 1234 Toho Trl”, a gold outline, its matches in the panel");
+  await page.click('.uw-qchip[data-g="beds"][data-v="5"]'); await page.waitForTimeout(300);
+  check((await state()).beds.join() === "5", "a filter set while viewing the property applies to that view");
+  await page.keyboard.press("Escape"); await page.waitForTimeout(1000);
+  s = await state();
+  check(s.sel === null && !/p=/.test(s.hash) && wholeMap(s) && s.beds.length === 0 && s.shown === 856 && s.tab === "uw-t-targets" && !s.prop, "Esc leaves the property: the whole map again, the overview's filters back (856 comps), no #p= in the link " + JSON.stringify(s).slice(0, 260));
+  check(await ev((id) => UW.ui.picked.has(id), keepId), "going back to the overview keeps the comps you picked");
+  // Esc closes a popup first, and does nothing while you type.
+  await ev((pid) => UW.select(pid), pid); await page.waitForTimeout(900);
+  await ev(() => UW.mapApi.openListing(UW.mapApi.lastNearest[0].l.id)); await page.waitForTimeout(400);
+  check((await state()).popup, "a comp popup is open on the property");
+  await page.keyboard.press("Escape"); await page.waitForTimeout(300);
+  s = await state();
+  check(!s.popup && s.sel === pid, "first Esc closes the popup and stays on the property");
+  await page.focus(".uw-qrev input"); await page.keyboard.press("Escape"); await page.waitForTimeout(300);
+  check((await state()).sel === pid, "Esc while typing in a field does not leave the property");
+  await ev(() => document.activeElement.blur());
+  await page.click(".uw-pickctl [data-pk=overview]"); await page.waitForTimeout(1000);
+  s = await state();
+  check(s.sel === null && wholeMap(s), "the Overview button on the map does the same as Esc");
+  await ev((pid) => UW.select(pid), pid); await page.waitForTimeout(700);
+  await page.click("#uw-p-comps [data-act=clear]"); await page.waitForTimeout(1000);
+  s = await state();
+  check(s.sel === null && wholeMap(s), "so does the ← Overview button in the panel");
+  await page.click(".uw-pickctl [data-pk=overview]"); await page.waitForTimeout(300);
+  check((await state()).sel === null, "Overview with nothing selected just re-frames the map");
+  await ev((id) => UW.pickMany([id], false), keepId);
+  await ev((pid) => UW.select(pid), pid); await page.waitForTimeout(700);  // later sections work on this target
+}
 
 console.log("\n4. COPY, ADD, DOWNLOAD\n");
 const first = loc[0].id;

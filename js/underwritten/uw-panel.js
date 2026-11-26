@@ -86,7 +86,7 @@
         '<span class="uw-trow__side">' + UW.errorBadge(v) + (p.geo ? "" : '<span class="uw-tag uw-tag--nopin">no pin</span>') + zillow(p) + "</span></li>";
     };
     const uw = all.filter((p) => p.kind !== "new"), nl = all.filter((p) => p.kind === "new");
-    render(host, '<p class="uw-panel__intro">Acquisition targets: the houses being underwritten. Pick one to rank its nearest Airbnb comps.</p>' +
+    render(host, '<p class="uw-panel__intro">Acquisition targets: the houses being underwritten. Click one to view only that property and rank its nearest Airbnb comps; <b>Esc</b> or the Overview button brings the whole map back.</p>' +
       '<p class="uw-tgroup">Underwritten <span class="uw-count">' + uw.length + '</span></p><ul class="uw-tlist">' + uw.map(row).join("") + "</ul>" +
       '<p class="uw-tgroup">New listings <span class="uw-count">' + nl.length + '</span></p>' + (nl.length ? '<ul class="uw-tlist">' + nl.map(row).join("") + "</ul>" :
         '<p class="uw-empty">None yet. <button type="button" class="uw-linkbtn" data-act="add-listing">Add a Zillow listing</button></p>'));
@@ -192,7 +192,7 @@
       const all = UW.properties(), idx = all.findIndex((x) => x.id === p.id);
       head = '<div class="uw-sel"><div class="uw-sel__top"><div class="uw-sel__id"><p class="uw-sel__kicker">Acquisition target' + (p.versions.length > 1 ? " · " + E(UW.scenarioName(v)) : "") + (p.kind !== "underwritten" ? " · new listing" : "") + "</p>" +
         '<h3 class="uw-sel__name">' + E(p.street) + "</h3>" + zillow(p, "uw-zl--big") + "</div>" +
-        '<button type="button" class="uw-btn uw-btn--icon" data-act="clear" aria-label="Clear the selection" data-focus="clear">×</button></div>' +
+        '<button type="button" class="uw-btn uw-btn--small uw-btn--ghost" data-act="clear" data-focus="clear" title="Leave this property and go back to the overview (Esc)">← Overview</button></div>' +
         '<p class="uw-sel__meta"><strong>' + F.money(v.inputs.price) + "</strong> · target " + F.num(t.beds) + " bd / " + F.num(t.baths) + " ba" + (t.sleeps ? " / sleeps " + t.sleeps : "") +
         (p.place ? " · " + E(p.place.areaName) + " · " + E(p.place.loc) : " · no map pin yet") + "</p>" +
         '<p class="uw-sel__kpi"><span>Revenue <b>' + ["low", "mid", "high"].map((c) => F.k(rev[c])).join(" · ") + "</b></span><span>Cash on cash <b>" +
@@ -218,7 +218,7 @@
     const picked = [...UW.ui.picked].filter((id) => UW.byId.has(id));
     const filtered = UW.ui.compsView === "filtered";
     const tools = '<div class="uw-picktools"><button type="button" class="uw-btn uw-btn--small uw-btn--ghost" data-act="pickall" data-focus="pa">Select all shown</button>' +
-      '<button type="button" class="uw-btn uw-btn--small uw-btn--ghost" data-act="pickclear"' + (picked.length ? "" : " disabled") + ' data-focus="pc">Clear</button>' +
+      '<button type="button" class="uw-btn uw-btn--small uw-btn--ghost" data-act="pickclear"' + (picked.length ? "" : " disabled") + ' data-focus="pc">Clear selection</button>' +
       '<span class="uw-picktools__n" id="uw-pick-n">' + picked.length + " selected</span>" +
       '<button type="button" class="uw-btn uw-btn--small uw-btn--primary" data-act="copypicked"' + (picked.length ? "" : " disabled") + ' data-focus="cp">Copy selected</button>' +
       (p ? '<button type="button" class="uw-btn uw-btn--small" data-act="addpicked"' + (picked.length ? "" : " disabled") + ' data-focus="ap">Add selected to comp set</button>' : "") +
@@ -336,7 +336,7 @@
     const p = UW.ui.selected ? UW.property(UW.ui.selected) : null;
     const v = p && UW.activeVersion(p);
     if (act === "select") { UW.select(b.dataset.pid, { from: "panel" }); P.showTab("comps"); }
-    else if (act === "clear") UW.select(null);
+    else if (act === "clear") UW.overview();
     else if (act === "tab-targets") P.showTab("targets");
     else if (act === "tab-filters") P.showTab("filters");
     else if (act === "mode") UW.setMode(b.dataset.v);

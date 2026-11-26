@@ -55,8 +55,7 @@
       if (!g) { UW.toast("OpenStreetMap has no match. Click the map to place the pin.", "warn"); UW.mapApi.startPlace(p.id); return; }
       UW.setPropertyField(p.id, "pin", g);
       UW.toast(g.approximate ? "OpenStreetMap only knows the street. Drag the pin to the house." : "Pin placed from OpenStreetMap.", g.approximate ? "warn" : "");
-      UW.select(p.id, { focus: true });
-      if (g.approximate) UW.mapApi.startPlace(p.id);
+      if (g.approximate) UW.mapApi.startPlace(p.id); else UW.mapApi.reveal(p.id);
     } catch (e) { UW.toast(e.message + ". Click the map to place the pin.", "warn"); UW.mapApi.startPlace(p.id); }
   };
 
@@ -204,10 +203,10 @@
     dlg.close();
     UW.ui.expanded.add(id);
     UW.cardsApi.renderList();
-    UW.select(id, { focus: true });
+    // A new listing shows on the map but doesn't take it over: you stay in the overview until you click it.
     if (!found && !UW.property(id).geo) UW.mapApi.startPlace(id, address);
     else if (found && found.approximate) UW.mapApi.startPlace(id, address);
-    else document.getElementById("uw-card-" + id).scrollIntoView({ behavior: "smooth", block: "start" });
+    else { document.getElementById("uw-map").scrollIntoView({ behavior: "smooth", block: "start" }); UW.mapApi.reveal(id); }
     const sz = sizeUsed && (sizeUsed.beds || sizeUsed.sqft) ? " OPEX defaults: " + [sizeUsed.beds ? sizeUsed.beds + " BR" : null, sizeUsed.sqft ? "up to " + sizeUsed.sqft.toLocaleString("en-US") + " sqft" : null].filter(Boolean).join(", ") + "." : "";
     UW.toast(editing ? "Saved" : "Added " + common.street + "." + sz + " Saved in this browser; use Export to share it.");
   }

@@ -160,6 +160,7 @@
       "Pastes into the UW sheet’s comp table: " + sheetCols.map((c) => "<code>" + E(c) + "</code>").join(" ") + ". Always revenue high to low; occupancy as a %, amenities as 1 / 0." :
       "Every column below plus the URL, the sheet’s amenity 1 / 0 columns, mountain view and the note, in the table’s current order.";
     const head = '<div class="uw-clist__bar">' +
+      '<button type="button" class="uw-btn uw-btn--small uw-btn--ghost uw-clist__back" data-l="back" title="Scroll back up to the map">↑ Back to map</button>' +
       '<div class="uw-seg" role="group" aria-label="Which comps to list">' + tab("picked", "Selected", nPick) + tab("shown", "All shown on the map", nShown) +
       (p ? tab("matches", "Matches for " + E(p.street), nMatch, !nMatch) : "") + "</div>" +
       '<div class="uw-clist__copy"><span class="uw-seg uw-seg--sm" role="group" aria-label="Copy format">' +
@@ -201,6 +202,7 @@
     else if (k === "copy-checked") copyRows(rows().filter((l) => UW.ui.picked.has(l.id)), "ticked");
     else if (k === "csv") downloadCsv(rows());
     else if (k === "clear") UW.clearPicked();
+    else if (k === "back") document.getElementById("uw-map").scrollIntoView({ behavior: "smooth", block: "start" });
     else if (k === "locate") { document.getElementById("uw-map").scrollIntoView({ behavior: "smooth", block: "start" }); setTimeout(() => UW.mapApi.openListing(b.dataset.id), 350); }
   }
   function onChange(e) {

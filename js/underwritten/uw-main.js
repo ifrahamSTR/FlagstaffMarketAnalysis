@@ -67,8 +67,8 @@
     UW.on("listings", () => renderHero());
     UW.on("select", (e) => {
       UW.mapApi.refresh();
-      if (e.pid) UW.mapApi.focus(e.pid);  // from the map or a card: zoom to it and its nearest comps
-      UW.panelApi.showTab("comps");
+      if (e.pid) { UW.mapApi.focus(e.pid); UW.panelApi.showTab("comps"); }  // property mode: zoom to it and its nearest comps
+      else { UW.mapApi.overview(); UW.panelApi.showTab("targets"); }       // overview: the whole map again
     });
     window.addEventListener("hashchange", () => {
       if (!location.hash.includes("=")) return;  // a plain section anchor (nav link), not a shared view

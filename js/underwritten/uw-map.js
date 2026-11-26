@@ -23,6 +23,7 @@
     placing = null, legendCtl, viewCtl, pickCtl, trayEl, viewOpen = false, hiddenN = 0, boxMode = false, box = null, baseLayers = {}, baseOn = null;
   const M = (UW.mapApi = {});
   const E = (s) => UW.esc(s);
+  let overviewFit = null;
 
   UW.colorOf = function (l) {
     const by = UW.ui.colorBy;
@@ -134,9 +135,8 @@
     const pts = UW.listings.map((l) => [l.lat, l.lng]).concat(G.peaks.filter((p) => p.name === "Humphreys Peak").map((p) => [p.lat, p.lng]), [[G.range.lat + 0.004, G.range.lng]]);
     // With whole zoom steps a fit lands a level too far out; zoom 11 on a desktop-sized map shows
     // Kachina Village (south) to Humphreys Peak (north). Smaller maps use the fit.
-    const fit = L.latLngBounds(pts);
-    if (map.getSize().y >= 560 && map.getSize().x >= 760) map.setView([35.205, -111.63], 11, { animate: false });
-    else map.fitBounds(fit.pad(0.02));
+    overviewFit = L.latLngBounds(pts).pad(0.02);
+    M.overview(false);
     legendCtl = L.control({ position: "bottomleft" });
     legendCtl.onAdd = () => { const d = L.DomUtil.create("div", "uw-legend"); L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d); return d; };
     legendCtl.addTo(map);
@@ -157,13 +157,37 @@
     zoomClass();
     map.getContainer().addEventListener("click", onMapClick);
     map.on("click", (e) => { if (placing) finishPlace(e.latlng); });
+    // Esc, one step at a time: finish placing a pin, cancel a box, close a popup, then leave property mode
+    // for the overview. Capture phase, so Leaflet's own Esc-closes-popup doesn't also trigger the last step.
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && placing) cancelPlace();
-      if (e.key === "Escape" && boxMode) setBoxMode(false);
-    });
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      const t = e.target, typing = t && (t.tagName === "TEXTAREA" || (t.tagName === "INPUT" && !/^(checkbox|radio|button|submit)$/.test(t.type)));
+      if (placing) { cancelPlace(); return; }
+      if (boxMode) { setBoxMode(false); return; }
+      if (typing || document.querySelector("dialog[open]")) return;
+      if (document.querySelector(".uw-leaflet .leaflet-popup")) { map.closePopup(); return; }
+      if (UW.ui.selected) UW.overview();
+    }, true);
     initBoxSelect();
     M.layers();
     M.refresh();
+  };
+
+  /** The whole-map view (the page's starting view); closes any popup. animate:false on first draw. */
+  M.overview = function (animate) {
+    if (!map) return;
+    map.closePopup();
+    if (flashLayer) flashLayer.clearLayers();
+    const o = { animate: animate !== false };
+    if (map.getSize().y >= 560 && map.getSize().x >= 760) map.setView([35.205, -111.63], 11, o);
+    else map.fitBounds(overviewFit, o);
+  };
+  /** Show a target on the map (fly to its pin, open its popup) without entering property mode. */
+  M.reveal = function (pid) {
+    const p = UW.property(pid);
+    if (!p || !p.geo) return;
+    map.once("moveend", () => setTimeout(() => M.openTarget(pid), 50));
+    map.flyTo([p.geo.lat, p.geo.lng], Math.max(map.getZoom(), 14), { duration: 0.6 });
   };
 
   // "City of Flagstaff" sits on the city's own land in its empty east lobe (no listing within 1.5 km).
@@ -210,12 +234,25 @@
   function drawPickCtl() {
     const host = pickCtl && pickCtl.getContainer();
     if (!host) return;
+    const sel = UW.ui.selected && UW.property(UW.ui.selected);
+    map.getContainer().classList.toggle("is-property", !!sel);
     const seg = (k, t, tip) => '<button type="button" data-pk="mode" data-v="' + k + '" aria-pressed="' + (UW.ui.pickMode === k) + '" title="' + tip + '">' + t + "</button>";
-    host.innerHTML = '<div class="uw-pickctl__row"><span class="uw-pickctl__l">Click a dot to</span><span class="uw-seg uw-seg--sm" role="group" aria-label="What clicking a comp does">' +
+    const home = '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M2 8 8 2.5 14 8M3.8 7v6.5h8.4V7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg> ';
+    const modeRow = sel ?
+      '<div class="uw-pickctl__row uw-pickctl__mode is-prop"><span class="uw-pickctl__prop">Viewing only <b>' + E(sel.street) + '</b></span>' +
+      '<button type="button" class="uw-btn uw-btn--small uw-btn--primary" data-pk="overview" title="Leave this property and show the whole map again (Esc)">← Overview</button><span class="uw-pickctl__hint">or press Esc</span></div>' :
+      '<div class="uw-pickctl__row uw-pickctl__mode"><button type="button" class="uw-btn uw-btn--small uw-btn--ghost" data-pk="overview" title="Frame the whole of Flagstaff again">' + home + 'Overview</button>' +
+      (UW.properties().length ? '<span class="uw-pickctl__hint">Click a target to view only it</span>' : "") + "</div>";
+    const pick = UW.ui.picked.size;
+    host.innerHTML = modeRow +
+      '<div class="uw-pickctl__row"><span class="uw-pickctl__l">Click a dot to</span><span class="uw-seg uw-seg--sm" role="group" aria-label="What clicking a comp does">' +
       seg("select", "Select", "Click a comp to add it to (or remove it from) your selection") + seg("details", "See details", "Click a comp to open its full details") + "</span></div>" +
-      '<div class="uw-pickctl__row"><button type="button" class="uw-btn uw-btn--small' + (boxMode ? " uw-btn--primary" : " uw-btn--ghost") + '" data-pk="box" aria-pressed="' + boxMode + '" title="Drag a box over the map to select every comp shown inside it (or hold Shift and drag)">' +
+      '<div class="uw-pickctl__row"><button type="button" class="uw-btn uw-btn--small' + (boxMode === "add" ? " uw-btn--primary" : " uw-btn--ghost") + '" data-pk="box" aria-pressed="' + (boxMode === "add") + '" title="Drag a box over the map to select every comp shown inside it (or hold Shift and drag)">' +
       '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 2"/></svg> ' +
-      (boxMode ? "Drag on the map…" : "Box select") + "</button>" + '<span class="uw-pickctl__hint">or Shift + drag</span></div>' +
+      (boxMode === "add" ? "Drag on the map…" : "Box select") + "</button>" +
+      (pick ? '<button type="button" class="uw-btn uw-btn--small' + (boxMode === "remove" ? " uw-btn--danger" : " uw-btn--ghost") + '" data-pk="boxrm" aria-pressed="' + (boxMode === "remove") + '" title="Drag a box to unselect the selected comps inside it (or hold Alt / Option and drag)">' +
+        (boxMode === "remove" ? "Drag on the map…" : "Box remove") + "</button>" : "") +
+      '<span class="uw-pickctl__hint">Shift-drag adds' + (pick ? " · Alt-drag removes" : "") + "</span></div>" +
       '<div class="uw-pickctl__row"><span class="uw-pickctl__l">Map</span><span class="uw-seg uw-seg--sm" role="group" aria-label="Basemap">' +
       Object.entries(BASEMAPS).map(([k, b]) => '<button type="button" data-pk="base" data-v="' + k + '" aria-pressed="' + (UW.ui.basemap === k) + '">' + b.label + "</button>").join("") + "</span></div>";
   }
@@ -224,31 +261,36 @@
     if (!b) return;
     const k = b.dataset.pk;
     if (k === "mode") { UW.ui.pickMode = b.dataset.v; saveView(); drawPickCtl(); map.closePopup(); }
-    else if (k === "box") setBoxMode(!boxMode);
+    else if (k === "overview") UW.overview();
+    else if (k === "box") setBoxMode(boxMode === "add" ? false : "add");
+    else if (k === "boxrm") setBoxMode(boxMode === "remove" ? false : "remove");
     else if (k === "base") setBase(b.dataset.v);
   }
-  function setBoxMode(on) {
-    boxMode = on;
-    map.getContainer().classList.toggle("is-boxing", on);
-    if (on) map.dragging.disable(); else if (!box) map.dragging.enable();
+  // kind: "add" | "remove" | false
+  function setBoxMode(kind) {
+    boxMode = kind || false;
+    map.getContainer().classList.toggle("is-boxing", !!kind);
+    if (kind) map.dragging.disable(); else if (!box) map.dragging.enable();
     drawPickCtl();
   }
 
-  // Box select: the Box select button, or Shift + drag, anywhere on the map.
+  // Box select: the Box select button, or Shift + drag, anywhere on the map; Box remove, or Alt / Option + drag, unselects.
   function initBoxSelect() {
     const c = map.getContainer();
-    let start = null, rect = null, justBoxed = false;
+    let start = null, rect = null, justBoxed = false, removing = false;
     // The click that ends a box drag must not toggle the dot under the cursor.
     c.addEventListener("click", (ev) => { if (justBoxed) { ev.stopPropagation(); ev.preventDefault(); justBoxed = false; } }, true);
     const ptOf = (ev) => map.mouseEventToContainerPoint(ev);
     c.addEventListener("mousedown", (ev) => {
-      if (placing || ev.button !== 0 || !(boxMode || ev.shiftKey)) return;
+      if (placing || ev.button !== 0 || !(boxMode || ev.shiftKey || ev.altKey)) return;
       if (ev.target.closest(".leaflet-control, .uw-tray, .leaflet-popup")) return;
       ev.preventDefault(); ev.stopPropagation();
       map.dragging.disable();
       start = ptOf(ev);
       box = true;
-      rect = L.rectangle(L.latLngBounds(map.containerPointToLatLng(start), map.containerPointToLatLng(start)), { color: "#1d4ed8", weight: 1.5, dashArray: "4 3", fillColor: "#3b82f6", fillOpacity: 0.12, interactive: false }).addTo(map);
+      removing = boxMode === "remove" || (boxMode !== "add" && ev.altKey && !ev.shiftKey);
+      const c1 = removing ? "#b3261e" : "#1d4ed8", c2 = removing ? "#e0574d" : "#3b82f6";
+      rect = L.rectangle(L.latLngBounds(map.containerPointToLatLng(start), map.containerPointToLatLng(start)), { color: c1, weight: 1.5, dashArray: "4 3", fillColor: c2, fillOpacity: 0.12, interactive: false }).addTo(map);
     }, true);
     window.addEventListener("mousemove", (ev) => {
       if (!start) return;
@@ -261,7 +303,11 @@
       start = null; box = null; justBoxed = true;
       setTimeout(() => { justBoxed = false; }, 60);
       map.removeLayer(rect); rect = null;
-      if (big) {
+      if (big && removing) {
+        const gone = [...UW.ui.picked].filter((id) => { const l = UW.byId.get(id); return l && b.contains([l.lat, l.lng]); });
+        if (gone.length) { UW.pickMany(gone, false); UW.toast("Removed " + gone.length + " comp" + (gone.length === 1 ? "" : "s") + " from your selection (" + UW.ui.picked.size + " left)"); }
+        else UW.toast("None of your selected comps are inside that box", "warn");
+      } else if (big) {
         const ids = dots.filter((m) => m._shown && b.contains(m.getLatLng())).map((m) => m.listing.id);
         const add = ids.filter((id) => !UW.ui.picked.has(id));
         if (add.length) { UW.pickMany(add); UW.toast("Selected " + add.length + " more comp" + (add.length === 1 ? "" : "s") + " (" + UW.ui.picked.size + " in all)"); }
@@ -575,7 +621,7 @@
     const near = UW.nearest(p);
     const pts = (p.geo ? [[p.geo.lat, p.geo.lng]] : []).concat(near.map((x) => [x.l.lat, x.l.lng]));
     if (!pts.length) return;
-    if (pts.length > 1) map.flyToBounds(L.latLngBounds(pts).pad(0.12), { maxZoom: 15.5, duration: 0.7 });
+    if (pts.length > 1) map.flyToBounds(L.latLngBounds(pts).pad(0.12), { maxZoom: 15, duration: 0.7 });
     else map.flyTo([p.geo.lat, p.geo.lng], 15, { duration: 0.7 });
   };
   M.invalidate = () => map && map.invalidateSize();

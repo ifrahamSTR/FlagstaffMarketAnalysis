@@ -495,12 +495,14 @@
 
   // Comp selection ("picked"): one set shared by the map (click / box), the panel and the comp list;
   // remembered in this browser (localStorage, wrapped in try/catch).
+  // Kept per tab (sessionStorage): a reload keeps the picks, a new visit starts empty.
   const PK_KEY = "flagstaffUW.picked";
   UW.loadPicked = function () {
-    try { const a = JSON.parse(localStorage.getItem(PK_KEY) || "[]"); if (Array.isArray(a)) a.forEach((id) => { if (UW.byId.has(id)) UW.ui.picked.add(id); }); } catch (e) { /* storage blocked: start empty */ }
+    try { localStorage.removeItem(PK_KEY); } catch (e) { /* the old, longer-lived copy */ }
+    try { const a = JSON.parse(sessionStorage.getItem(PK_KEY) || "[]"); if (Array.isArray(a)) a.forEach((id) => { if (UW.byId.has(id)) UW.ui.picked.add(id); }); } catch (e) { /* storage blocked: start empty */ }
   };
   UW.pickChanged = function () {
-    try { localStorage.setItem(PK_KEY, JSON.stringify([...UW.ui.picked])); } catch (e) { /* storage blocked: this session only */ }
+    try { sessionStorage.setItem(PK_KEY, JSON.stringify([...UW.ui.picked])); } catch (e) { /* storage blocked: this page only */ }
     UW.emit("picked");
   };
   UW.togglePick = function (id, on) {
@@ -510,7 +512,13 @@
     UW.pickChanged();
   };
   UW.pickMany = function (ids, on) { ids.forEach((id) => { if (on === false) UW.ui.picked.delete(id); else if (UW.byId.has(id)) UW.ui.picked.add(id); }); UW.pickChanged(); };
-  UW.clearPicked = function () { UW.ui.picked.clear(); UW.pickChanged(); };
+  /** Clear every picked comp; the message offers Undo for a few seconds. */
+  UW.clearPicked = function () {
+    const prev = [...UW.ui.picked];
+    if (!prev.length) return;
+    UW.ui.picked.clear(); UW.pickChanged();
+    UW.toast("Cleared " + prev.length + " selected comp" + (prev.length === 1 ? "" : "s"), "", { label: "Undo", fn: () => UW.pickMany(prev) });
+  };
 
   // Stats leave error rows out (they aren't valid comps); "excluded" says how many.
   UW.compStats = function (p, v) {
@@ -612,8 +620,27 @@
   };
   UW.nearest = UW.results;
 
+  // Two modes. Overview (no target selected) is the default: the map as a whole, your filters and your
+  // picked comps. Property mode (a target selected, only by clicking it) zooms to that one property and its
+  // matches. Entering it remembers the overview's filters and matching state; leaving it (the Overview
+  // button, Esc) puts them back and re-frames the map, so "the map as it was" is one step away.
+  function overviewSnapshot() {
+    const u = UW.ui;
+    return { mode: u.mode, pure: u.pure, n: u.n, nByMode: Object.assign({}, u.nByMode || {}), radius: u.radius, sort: u.sort, compsView: u.compsView,
+      filtersByMode: UW.clone(u.filtersByMode), amRules: UW.clone(u.amRules), locRules: UW.clone(u.locRules) };
+  }
+  function restoreOverview(s) {
+    Object.assign(UW.ui, s);
+    UW.refilter(); UW.emit("filters");
+  }
+  /** Leave property mode (or, in overview, just re-frame the map). */
+  UW.overview = function () {
+    if (UW.ui.selected) UW.select(null);
+    else UW.mapApi.overview();
+  };
   UW.select = function (pid, opts) {
     opts = opts || {};
+    const prev = UW.ui.selected;
     const changed = pid !== UW.ui.selected;
     UW.ui.selected = pid;
     if (pid) {
@@ -621,12 +648,15 @@
       if (!p) UW.ui.selected = null;
       // Picking a target opens Match by location (or the mode asked for).
       else if (changed || opts.mode) {
+        if (!prev && !UW._overviewSnap) UW._overviewSnap = overviewSnapshot();
         UW.ui.nByMode = UW.ui.nByMode || {};
         UW.ui.nByMode[UW.ui.mode] = UW.ui.n;
         UW.ui.mode = opts.mode || "location";
         UW.ui.n = UW.ui.nByMode[UW.ui.mode] || (UW.ui.mode === "amenity" ? 25 : 12);
         UW.ui.pure = false; UW.ui.amRules.pool = null; UW.refilter(); UW.emit("filters");
       }
+    } else if (prev && UW._overviewSnap) {
+      restoreOverview(UW._overviewSnap); UW._overviewSnap = null;
     }
     UW.writeHash();
     UW.emit("select", Object.assign({ pid: UW.ui.selected }, opts || {}));
@@ -711,15 +741,24 @@
     if (run.length) setTimeout(() => run.forEach((fn) => fn()), 0);
   }, true);
   UW.afterPointer = (fn) => { if (pointerDown) pending.push(fn); else fn(); };
-  UW.toast = function (msg, kind) {
+  UW.toast = function (msg, kind, action) {
     let host = document.getElementById("uw-toasts");
     if (!host) { host = document.createElement("div"); host.id = "uw-toasts"; host.className = "uw-toasts"; host.setAttribute("role", "status"); host.setAttribute("aria-live", "polite"); document.body.appendChild(host); }
     const t = document.createElement("div");
     t.className = "uw-toast" + (kind ? " uw-toast--" + kind : "");
     t.textContent = msg;
+    if (action) {
+      // One Undo at a time: a newer one replaces an older message's.
+      host.querySelectorAll(".uw-toast__act").forEach((a) => a.closest(".uw-toast").remove());
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "uw-toast__act"; b.textContent = action.label;
+      b.addEventListener("click", () => { action.fn(); t.remove(); });
+      t.appendChild(b);
+    }
     host.appendChild(t);
-    setTimeout(() => t.classList.add("is-out"), kind === "warn" ? 6000 : 2600);
-    setTimeout(() => t.remove(), kind === "warn" ? 6500 : 3100);
+    const life = action ? 8000 : kind === "warn" ? 6000 : 2600;
+    setTimeout(() => t.classList.add("is-out"), life);
+    setTimeout(() => t.remove(), life + 500);
   };
   UW.copy = async function (text, what) {
     try {
