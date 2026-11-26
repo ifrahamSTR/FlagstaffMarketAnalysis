@@ -379,6 +379,47 @@
     return out;
   }
 
-  return { STANDARD_OPEX, STANDARD_CLEANING, withStandardOpex, STANDARD_SETUP, withStandardSetup, setupKey, SHEET_FLAGS, FLAG_LABEL, CLASSES, TAG, roomId, isZillow, valueChanges, classify, canPick, miles, autoNote, retag, rowFromListing, addToSet, appendDistance, parseNotes,
+  // ---------------------------------------------------------------------------
+  // Flagstaff defaults by size (the user's tables, 2026-11-26; supplied under the "Blue Ridge, GA" name):
+  //  - by bedrooms: cleaning cost per turn, turns a year, CapEx reserve, insurance (HOI), household supplies, software;
+  //  - by property size (sqft): internet, pest control, utilities.
+  // Bedrooms: 1-7, a studio counts as 1 and 8+ as 7. Size: the smallest row whose sqft covers the home
+  // (1,800 sqft -> the 2,000 row), anything over 4,500 uses the 4,500 row. Used only for a new listing
+  // from the blank template; every value stays editable on the Sheet tab.
+  // ---------------------------------------------------------------------------
+  const OPEX_BY_BEDROOMS = {
+    1: { cleaning: 125, capex: 300, insurance: 200, supplies: 125, software: 0, turns: 8.5 },
+    2: { cleaning: 150, capex: 325, insurance: 200, supplies: 125, software: 0, turns: 8 },
+    3: { cleaning: 175, capex: 350, insurance: 250, supplies: 175, software: 0, turns: 7 },
+    4: { cleaning: 225, capex: 400, insurance: 300, supplies: 205, software: 0, turns: 6.25 },
+    5: { cleaning: 275, capex: 500, insurance: 350, supplies: 250, software: 0, turns: 5.5 },
+    6: { cleaning: 350, capex: 600, insurance: 400, supplies: 300, software: 0, turns: 5 },
+    7: { cleaning: 400, capex: 700, insurance: 450, supplies: 330, software: 0, turns: 5 },
+  };
+  const OPEX_BY_SQFT = [
+    { sqft: 1000, internet: 100, pest: 60, utilities: 325 }, { sqft: 1500, internet: 100, pest: 60, utilities: 425 },
+    { sqft: 2000, internet: 100, pest: 60, utilities: 525 }, { sqft: 2750, internet: 100, pest: 75, utilities: 625 },
+    { sqft: 3500, internet: 125, pest: 75, utilities: 700 }, { sqft: 4500, internet: 150, pest: 75, utilities: 825 },
+  ];
+  const bedTier = (beds) => (beds == null || isNaN(beds) ? null : OPEX_BY_BEDROOMS[Math.min(7, Math.max(1, Math.round(beds)))]);
+  const sqftTier = (sqft) => (sqft == null || isNaN(sqft) || sqft <= 0 ? null : OPEX_BY_SQFT.find((t) => sqft <= t.sqft) || OPEX_BY_SQFT[OPEX_BY_SQFT.length - 1]);
+  /**
+   * Inputs for a new blank-template listing with the size defaults on top of the standard ones:
+   * cleaning cost and turns, CapEx, insurance, supplies and software from the bedrooms; internet,
+   * pest control and utilities from the sqft. A missing size leaves those lines at the generic defaults.
+   * Returns {inputs, used: {beds, sqft}} (used = the rows applied, for the message shown).
+   */
+  function withSizeDefaults(inputs, size) {
+    const out = withStandardOpex(inputs), bt = bedTier(size && size.beds), st = sqftTier(size && size.sqft);
+    const put = (label, amount) => { out.opex.filter((o) => setupKey(o.label) === setupKey(label)).forEach((o) => Object.assign(o, { amount, std: 1 })); };
+    if (bt) {
+      put("CapEx Reserve", bt.capex); put("Insurance HOI", bt.insurance); put("Household Supplies", bt.supplies); put("Software", bt.software);
+      out.cleaningCost = bt.cleaning; out.cleaningTurns = bt.turns;
+    }
+    if (st) { put("Internet", st.internet); put("Pest Control", st.pest); put("Utilities", st.utilities); }
+    return { inputs: out, used: { beds: bt ? Math.min(7, Math.max(1, Math.round(size.beds))) : null, sqft: st ? st.sqft : null } };
+  }
+
+  return { OPEX_BY_BEDROOMS, OPEX_BY_SQFT, bedTier, sqftTier, withSizeDefaults, STANDARD_OPEX, STANDARD_CLEANING, withStandardOpex, STANDARD_SETUP, withStandardSetup, setupKey, SHEET_FLAGS, FLAG_LABEL, CLASSES, TAG, roomId, isZillow, valueChanges, classify, canPick, miles, autoNote, retag, rowFromListing, addToSet, appendDistance, parseNotes,
     PROFILE_FLAGS, AMENITY_ORDER, MATCH_ONLY, PROFILE_LABEL, profilePrefill, profileWith, amenityInfo, matchLocation, matchAmenity, flagOf, WATER_LOC };
 });

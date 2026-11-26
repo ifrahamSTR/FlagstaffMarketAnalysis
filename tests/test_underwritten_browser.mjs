@@ -149,6 +149,7 @@ check(/Blank sheet/.test(await page.locator("#f-tpl option:checked").innerText()
 await page.fill("#f-price", "289000");
 await page.fill("#f-beds", "3");
 await page.fill("#f-baths", "2");
+await page.fill("#f-sqft", "1800");
 await page.click("details.uw-dlg__more summary");
 await page.check("#f-tub");
 await page.click(".uw-dlg__foot button[type=submit]");
@@ -263,7 +264,9 @@ console.log("\n5. OPEX AND RETURNS\n");
 await ev((pid) => { const v = UW.property(pid).versions[0]; const inp = JSON.parse(JSON.stringify(v.inputs)); inp.revenue = { low: 60000, mid: 75000, high: 90000 }; UW.setInputs(pid, "Draft", inp); }, pid);
 const g1 = await ev((pid) => UW.property(pid).versions[0].outputs.cases.mid.coc, pid);
 const ox = await ev((pid) => { const v = UW.property(pid).versions[0]; return { m: v.outputs.opexMonthly, lines: v.inputs.opex.filter((o) => !o.cleaning && o.amount == null).length }; }, pid);
-check(g1 != null && ox.m === 4850 && ox.lines === 0, "revenue entered: cash on cash computes straight away; OPEX $" + ox.m + "/month, no empty line");
+const sd = await ev((pid) => { const v = UW.property(pid).versions[0].inputs, g = (l) => v.opex.find((o) => /^\s*/.test(o.label) && o.label.trim().toLowerCase() === l).amount; return [v.cleaningCost, v.cleaningTurns, g("capex reserve"), g("insurance hoi"), g("household supplies"), g("internet"), g("pest control"), g("utilities")]; }, pid);
+check(sd.join() === [175, 7, 350, 250, 175, 100, 60, 525].join(), "3 BR / 1,800 sqft size defaults: cleaning $175 x 7 turns, CapEx $350, insurance $250, supplies $175; internet $100, pest $60, utilities $525 (the 2,000 sqft row): " + sd.join(", "));
+check(g1 != null && ox.m === 3885 && ox.lines === 0, "revenue entered: cash on cash computes straight away; OPEX $" + ox.m + "/month with the size defaults, no empty line");
 await ev((pid) => { const v = UW.property(pid).versions[0]; const inp = JSON.parse(JSON.stringify(v.inputs)); inp.opex.find((o) => /Utilities/i.test(o.label)).amount = 400; UW.setInputs(pid, "Draft", inp); }, pid);
 const g2 = await ev((pid) => { const v = UW.property(pid).versions[0]; return { coc: v.outputs.cases.mid.coc, missing: !!v.outputs.opexMissing }; }, pid);
 check(g2.coc != null && !g2.missing, "editing an OPEX line recalculates cash on cash (" + (g2.coc * 100).toFixed(2) + "% mid)");

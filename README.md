@@ -27,6 +27,29 @@ Static site (no build step for the page): the Santa Rosa Beach / Gulf Shores **U
 - No default revenue floor (`minRevDefault` null): the market median is about $47k (top 25% from $66k, top 10% from $91k), so the coastal pages' $90k would hide most homes. Set one with "Revenue ≥" above the map.
 - `../notebooks/flagstaff_city_tiger.json` (TIGERweb, fetched 2026-11-26) and `../notebooks/flagstaff_geo.json` (Overpass, 2026-11-26) are the cached geography; the build copies them into `data/geo.json`.
 
+## OPEX defaults by size (new listings)
+
+A new listing from the blank sheet gets these on top of the standard OPEX lines (`OPEX_BY_BEDROOMS`, `OPEX_BY_SQFT` in `js/underwritten/uw-rules.js`). They were supplied under the "Blue Ridge, GA" name and set here for Flagstaff. Bedrooms use the projected count if given, else the listed one (studio = 1, 8+ = 7); sqft picks the smallest row that covers the home (1,800 sqft uses the 2,000 row; above 4,500 uses the 4,500 row). With no bedrooms or sqft entered, those lines stay at the generic defaults. Everything stays editable on the Sheet tab; editing a saved listing's bedrooms later does not re-price it.
+
+| Bedrooms | Cleaning | CapEx | Insurance | Supplies | Software | Turns |
+|---|---|---|---|---|---|---|
+| 1 | $125 | $300 | $200 | $125 | $0 | 8.5 |
+| 2 | $150 | $325 | $200 | $125 | $0 | 8 |
+| 3 | $175 | $350 | $250 | $175 | $0 | 7 |
+| 4 | $225 | $400 | $300 | $205 | $0 | 6.25 |
+| 5 | $275 | $500 | $350 | $250 | $0 | 5.5 |
+| 6 | $350 | $600 | $400 | $300 | $0 | 5 |
+| 7 | $400 | $700 | $450 | $330 | $0 | 5 |
+
+| Sqft | Internet | Pest control | Utilities |
+|---|---|---|---|
+| 1,000 | $100 | $60 | $325 |
+| 1,500 | $100 | $60 | $425 |
+| 2,000 | $100 | $60 | $525 |
+| 2,750 | $100 | $75 | $625 |
+| 3,500 | $125 | $75 | $700 |
+| 4,500 | $150 | $75 | $825 |
+
 ## Pipeline
 
 1. `python scripts/build_underwritten.py` (the `str` venv; add `--offline` to skip geocoding) writes `data/*.json`, `tests/fixtures/place_check.json` and `reports/comp_audit.csv`, then runs `node tests/test_underwritten.mjs` (37 checks: browser vs Python location rules on 1,225 grid points and all 856 listings, copy rows, matching).

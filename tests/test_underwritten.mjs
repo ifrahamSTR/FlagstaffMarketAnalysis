@@ -236,7 +236,25 @@ console.log("\nSTANDARD OPEX LINES: every new sheet carries all fifteen, priced 
   const kept = R.withStandardOpex({ opex: [{ label: "Property Taxes (Monthly)", amount: 385 }, { label: "PMI", amount: null }], cleaningCost: 150, cleaningTurns: 8 });
   if (!(kept.opex.find((o) => o.label === "Property Taxes (Monthly)").amount === 385 && kept.opex.find((o) => o.label === "PMI").amount === 0 && kept.cleaningCost === 150 && kept.cleaningTurns === 8))
     bad("a priced line or the cleaning cost changed, or a blank line wasn't filled");
+  // Size defaults (the Flagstaff tables): bedrooms -> cleaning x turns, CapEx, insurance, supplies, software; sqft -> internet, pest control, utilities.
+  {
+    const line = (o, l) => o.opex.find((x) => R.setupKey(x.label) === R.setupKey(l)).amount;
+    const blank = { opex: [], cleaningCost: null, cleaningTurns: null };
+    const a = R.withSizeDefaults(blank, { beds: 4, sqft: 2400 }), o = a.inputs;
+    if (!(o.cleaningCost === 225 && o.cleaningTurns === 6.25 && line(o, "CapEx Reserve") === 400 && line(o, "Insurance HOI") === 300 && line(o, "Household Supplies") === 205 && line(o, "Software") === 0)) bad("4 BR defaults are not the 4 BR row");
+    if (!(line(o, "Internet") === 100 && line(o, "Pest Control") === 75 && line(o, "Utilities") === 625 && a.used.sqft === 2750 && a.used.beds === 4)) bad("2,400 sqft is not the 2,750 row");
+    const rows = [[1000, 325, 60], [1001, 425, 60], [1500, 425, 60], [2000, 525, 60], [2750, 625, 75], [3500, 700, 75], [4500, 825, 75], [9000, 825, 75], [400, 325, 60]];
+    rows.forEach(([s, u, p]) => { const x = R.withSizeDefaults(blank, { beds: 3, sqft: s }).inputs; if (line(x, "Utilities") !== u || line(x, "Pest Control") !== p) bad(s + " sqft gives utilities " + line(x, "Utilities") + ", pest " + line(x, "Pest Control")); });
+    const turns = [[0, 1, 8.5], [1, 1, 8.5], [2, 2, 8], [3, 3, 7], [5, 5, 5.5], [6, 6, 5], [7, 7, 5], [9, 7, 5]];
+    turns.forEach(([b, used, t]) => { const x = R.withSizeDefaults(blank, { beds: b, sqft: 1000 }); if (x.used.beds !== used || x.inputs.cleaningTurns !== t) bad(b + " BR gives the " + x.used.beds + " BR row, turns " + x.inputs.cleaningTurns); });
+    const none = R.withSizeDefaults(blank, {});
+    if (!(none.inputs.cleaningCost === 275 && none.inputs.cleaningTurns === 6 && line(none.inputs, "Utilities") === 500 && none.used.beds === null && none.used.sqft === null)) bad("no size should leave the generic defaults");
+    const half = R.withSizeDefaults(blank, { beds: 2 });
+    if (!(half.inputs.cleaningCost === 150 && line(half.inputs, "Utilities") === 500)) bad("bedrooms only: sqft lines should stay generic");
+    console.log("  ok   size defaults: 4 BR / 2,400 sqft -> cleaning $225 x 6.25, CapEx $400, insurance $300, supplies $205; internet $100, pest $75, utilities $625 (2,750 row); sqft and bedroom edges; no size = generic");
+  }
   // Exported from this site's new-listing template (blank lines and all), every OPEX row has a value; zeros show as "$ -".
+
   const tdir = (UW.templates || []).some((t) => t.file === UW.templateFile) ? "underwriting/template" : "underwriting/source_csv";
   const TT = readFileSync(join(ROOT, tdir, UW.templateFile), "utf8"), L0 = C.locate(C.parse(TT).rows);
   const base = (UW.templates || []).find((t) => t.file === UW.templateFile) || UW.properties.flatMap((p) => p.versions).find((v) => v.file === UW.templateFile);

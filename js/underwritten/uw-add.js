@@ -178,7 +178,7 @@
       pool: g("f-pool").checked, hotTub: g("f-tub").checked, why: g("f-why").value };
     const common = { url: url || null, address, street: parts[0], city: parts[1] || za.city || null, zip: (address.match(/\b(\d{5})\b/) || [])[1] || za.zip || null,
       zpid: za.zpid || null, facts, notes: A.buildNotes(facts) };
-    let id;
+    let id, sizeUsed = null;
     if (editing) {
       id = editing.id;
       const inputs = UW.clone(editing.listing.inputs);
@@ -191,7 +191,11 @@
       inputs.price = price;
       inputs.revenue = { low: null, mid: null, high: null };
       inputs.setup = UWRules.withStandardSetup(inputs.setup);  // the five lines every sheet carries
-      Object.assign(inputs, UWRules.withStandardOpex(inputs));  // every OPEX line priced, never empty
+      // Every OPEX line priced, never empty. A blank-template listing takes the size defaults: cleaning, CapEx,
+      // insurance, supplies and software by bedrooms (projected, else as listed), internet, pest control and
+      // utilities by sqft. A listing copied from an underwritten sheet keeps that sheet's own amounts.
+      if (t.blank) { const sd = UWRules.withSizeDefaults(inputs, { beds: facts.projBeds != null ? facts.projBeds : facts.beds, sqft: facts.sqft }); Object.assign(inputs, sd.inputs); sizeUsed = sd.used; }
+      else Object.assign(inputs, UWRules.withStandardOpex(inputs));
       id = za.zpid ? "z" + za.zpid : "n" + Date.now().toString(36);
       if (UW.property(id)) id += "-" + Date.now().toString(36);
       UW.addListing(Object.assign(common, { id, kind: "new", created: new Date().toISOString().slice(0, 10), template: t.file, templateLabel: t.label, inputs, comps: [],
@@ -204,6 +208,7 @@
     if (!found && !UW.property(id).geo) UW.mapApi.startPlace(id, address);
     else if (found && found.approximate) UW.mapApi.startPlace(id, address);
     else document.getElementById("uw-card-" + id).scrollIntoView({ behavior: "smooth", block: "start" });
-    UW.toast(editing ? "Saved" : "Added " + common.street + ". Saved in this browser; use Export to share it.");
+    const sz = sizeUsed && (sizeUsed.beds || sizeUsed.sqft) ? " OPEX defaults: " + [sizeUsed.beds ? sizeUsed.beds + " BR" : null, sizeUsed.sqft ? "up to " + sizeUsed.sqft.toLocaleString("en-US") + " sqft" : null].filter(Boolean).join(", ") + "." : "";
+    UW.toast(editing ? "Saved" : "Added " + common.street + "." + sz + " Saved in this browser; use Export to share it.");
   }
 })();
