@@ -466,6 +466,34 @@ await ev((pid) => { UW.ui.cardTab[pid] = "sheet"; UW.ui.expanded.add(pid); UW.ca
 await page.waitForTimeout(800);
 check(await page.locator("#uw-card-" + pid).isVisible(), "the target's card renders with its Sheet tab");
 
+// The comp table in the Sheet tab is editable, cell by cell.
+{
+  const nComps = await ev((pid) => UW.property(pid).versions[0].comps.length, pid);
+  const cell = (ci, k) => page.locator("#uw-card-" + pid + ' input[data-sh=comp][data-ci="' + ci + '"][data-k="' + k + '"]');
+  check(nComps >= 3 && await page.locator("#uw-card-" + pid + " input[data-sh=comp]").count() === nComps * 15, "every cell of the " + nComps + " comp rows is an input (15 columns each)");
+  const urls0 = await ev((pid) => UW.property(pid).versions[0].comps.map((c) => c.url), pid);
+  // Row 2 gets a tiny revenue: it drops to the bottom of the stored order. Then its notes are edited from the SAME on-screen row.
+  await cell(1, 1).evaluate((el) => el.closest("tr").setAttribute("data-tmp", "1"));  // this on-screen row, whatever place its comp moves to
+  await cell(1, 1).fill("$ 5,000"); await cell(1, 1).press("Tab"); await page.waitForTimeout(250);
+  const row = page.locator("#uw-card-" + pid + " tr[data-tmp]");
+  await row.locator('input[data-k="14"]').fill("edited from the sheet"); await row.locator('input[data-k="14"]').press("Tab");
+  await row.locator('input[data-k="2"]').fill("7"); await row.locator('input[data-k="2"]').press("Tab");
+  await row.locator('input[data-k="5"]').fill("41.5%"); await row.locator('input[data-k="5"]').press("Tab");
+  await cell(0, 6).fill("1"); await cell(0, 6).press("Tab");
+  await cell(0, 7).fill("0"); await cell(0, 7).press("Tab"); await page.waitForTimeout(300);
+  const after = await ev(([pid, u]) => { const cs = UW.property(pid).versions[0].comps, e = cs.find((c) => c.url === u[1]);
+    return { order: cs.map((c) => c.url), e: e && { revenue: e.revenue, notes: e.notes, bedrooms: e.bedrooms, occ: e.occupancy }, others: cs.filter((c) => c.url !== u[1]).map((c) => c.notes), first: cs.find((c) => c.url === u[0]).flags, fl: UW.data.uw.sheetFlags.slice(0, 2), shown: document.querySelector("#uw-card-" + pid + ' input[data-sh=comp][data-k="1"]').value }; }, [pid, urls0]);
+  check(after.e && after.e.revenue === 5000 && after.e.notes === "edited from the sheet" && after.e.bedrooms === 7 && Math.abs(after.e.occ - 0.415) < 1e-9, "edits to a comp's revenue, notes, bedrooms and occupancy (41.5%) are saved on that comp: " + JSON.stringify(after.e));
+  check(after.order[after.order.length - 1] === urls0[1] && after.others.every((n) => n !== "edited from the sheet"), "the stored comps are re-ordered by revenue, and the later edits on that row still went to the right comp (no other comp's notes changed)");
+  check(after.first[after.fl[0]] === 1 && after.first[after.fl[1]] === 0, "amenity cells take 1 / 0 (" + after.fl.join(", ") + ")");
+  check(/\$5,000\.00|\$ 5,000/.test(await cell(+(await ev(([pid, u]) => UW.property(pid).versions[0].comps.findIndex((c) => c.url === u[1]), [pid, urls0])), 1).inputValue()), "the saved cell shows the sheet's own money format");
+  const [dl2] = await Promise.all([page.waitForEvent("download"), ev((pid) => UW.actions.downloadCsv(pid), pid)]);
+  const out = C.parse(readFileSync(await dl2.path(), "utf8")), L2 = C.locate(out.rows);
+  let seen = null;
+  for (let i = L2.comps.first; i <= L2.comps.last; i++) if (out.rows[i][L2.comps.col] === urls0[1]) seen = out.rows[i];
+  check(seen && /5,000/.test(seen[L2.comps.col + 1]) && seen[L2.comps.col + 2] === "7" && seen[L2.comps.col + 14] === "edited from the sheet", "Download UW CSV carries the edited comp row");
+}
+
 console.log("\n6. LAYERS, LINKS, PHONE\n");
 await ev(() => { UW.ui.colorBy = "loc"; UW.mapApi.refresh(); });
 const legend = await ev(() => document.querySelector(".uw-legend").textContent);

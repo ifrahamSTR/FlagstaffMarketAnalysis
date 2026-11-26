@@ -126,14 +126,26 @@
     put(L.cleaningTurns, { sh: "cleanTurns", f: "num" });
     ["low", "mid", "high"].forEach((c, j) => put(L.revenue[j], { sh: "rev", k: c, f: "acct" }));
     put(L.notes, { sh: "notes", f: "notes" });
+    // The comp table: every cell of every filled row. A row is tied to its comp by its URL (the table's
+    // row order is the sheet's, which can differ from the stored order), so an edit can't land on another comp.
+    for (let i = L.comps.first; i <= L.comps.last; i++) {
+      const url = String(rows[i][L.comps.col] || "").trim(), ci = url ? (v.comps || []).findIndex((c) => String(c.url || "").trim() === url) : -1;
+      if (ci < 0) continue;
+      for (let k = 0; k < 15; k++) put([i, L.comps.col + k], { sh: "comp", ci, k, f: "comp" });
+    }
     return m;
   }
+  const COMP_LABEL = ["Listing URL", "Revenue Potential", "Bedrooms", "Sleeps", "ADR", "Occupancy", "Amenity 1 or 0", "Amenity 1 or 0", "Amenity 1 or 0", "Amenity 1 or 0", "Amenity 1 or 0", "Amenity 1 or 0", "Amenity 1 or 0", "Amenity 1 or 0", "Notes"];
   const LABEL = { price: "Purchase price", dpPct: "Down payment %", rate: "Interest rate", closingPct: "Closing costs %", setupLabel: "Setup item", setupAmt: "Setup item cost",
     opex: "Monthly OPEX", cleanCost: "Cleaning cost", cleanTurns: "Number of turns", rev: "Forecasted revenue", notes: "Analyst notes" };
   function inputCell(d, text, i, j, spanAttr) {
     const attrs = ' data-sh="' + d.sh + '"' + (d.r != null ? ' data-r="' + d.r + '"' : "") + (d.k != null ? ' data-k="' + d.k + '"' : "") + (d.d != null ? ' data-dec="' + d.d + '"' : "") +
       ' aria-label="' + E(LABEL[d.sh] + (d.k != null && d.sh === "rev" ? " (" + d.k + ")" : "") + ", cell " + ref(i, j)) + '" spellcheck="false"';
     const t = String(text || "");
+    if (d.f === "comp") {
+      const ca = ' data-sh="comp" data-ci="' + d.ci + '" data-k="' + d.k + '" aria-label="' + E("Comp " + (d.ci + 1) + ", " + COMP_LABEL[d.k] + ", cell " + ref(i, j)) + '" spellcheck="false"';
+      return '<td class="sh-in sh-comp sh-comp--' + (d.k === 0 ? "url" : d.k === 14 ? "notes" : d.k > 5 ? "flag" : "n") + '"><input class="sh-input" type="text" value="' + E(t.trim()) + '"' + ca + "></td>";
+    }
     if (d.f === "notes") return '<td class="sh-in sh-block"' + spanAttr + '><textarea class="sh-notes"' + attrs + ">" + E(t) + "</textarea></td>";
     if (d.f === "text") return '<td class="sh-in sh-in--text"><div class="sh-ce" contenteditable="plaintext-only" role="textbox"' + attrs + ">" + E(t) + "</div></td>";
     if (d.f === "acct") {
@@ -218,7 +230,7 @@
     const isUW = p.kind === "underwritten", file = fileOf(p, v);
     const edited = v.source !== "sheet";
     return '<div class="sh-legend"><p><strong>' + E(file.replace(/\.csv$/, "")) + "</strong>" + (isUW ? "" : " <span class=\"muted\">(the template, with this listing’s inputs)</span>") +
-      ' · every cell as the CSV has it, columns A–V. <span class="sh-swatch" aria-hidden="true"></span>Yellow cells are inputs: click one to edit it, and the totals and returns update as you type.</p>' +
+      ' · every cell as the CSV has it, columns A–V. <span class="sh-swatch" aria-hidden="true"></span>Yellow cells are inputs: click one to edit it, and the totals and returns update as you type. The comp table is editable too (URL, revenue, bedrooms, sleeps, ADR, occupancy, the amenity 1 / 0 cells, notes): a change is saved when you leave the cell, and the rows are put back in revenue order the next time the sheet is opened.</p>' +
       '<p class="sh-legend__edited"' + (edited ? "" : " hidden") + ">Edited: totals and returns are recalculated here. The amortization block stays as the sheet wrote it, and Download UW CSV copies it byte for byte.</p></div>" +
       '<div class="uw-sheet" data-pid="' + E(p.id) + '" data-label="' + E(v.label) + '"><p class="uw-hint">Loading the sheet…</p></div>';
   };
@@ -323,6 +335,7 @@
     const c = ctx(t);
     if (!c || !c.st) return;
     const { p, v, st } = c, sh = t.dataset.sh;
+    if (sh === "comp") return;  // saved when you leave the cell (onCompChange)
     if (sh === "notes") { UW.setNotes(p.id, v.label, t.value.replace(/\r\n/g, "\n")); return; }
     const text = t.isContentEditable ? t.textContent : t.value;
     const inputs = UW.clone(v.inputs), n = parseNum(text), pct = (x) => (x == null ? null : x / 100);
@@ -355,6 +368,7 @@
   function onFocus(e) {
     const t = e.target;
     if (!t.dataset || !t.dataset.sh || t.dataset.sh === "notes" || t.dataset.sh === "setupLabel") return;
+    if (t.dataset.sh === "comp") { if (t.select) t.select(); return; }
     const c = ctx(t);
     if (!c) return;
     const r = raw(t.dataset, c.v, c.st);
@@ -363,7 +377,7 @@
   }
   function onBlur(e) {
     const t = e.target;
-    if (!t.dataset || !t.dataset.sh || t.dataset.sh === "notes") return;
+    if (!t.dataset || !t.dataset.sh || t.dataset.sh === "notes" || t.dataset.sh === "comp") return;
     const c = ctx(t);
     if (!c) return;
     let { p, v } = c;
@@ -385,8 +399,56 @@
     if (td && td.querySelector(".sh-acct")) td.classList.toggle("is-empty", !s.trim());
   }
 
+  // A comp-table cell, saved when you leave it. The stored comps are kept in revenue order (as everywhere), so a row's
+  // place can change; every comp cell on screen is re-pointed to its comp's new place, so later edits still hit the right row.
+  const FLAG_ON = /^(1|y|yes|true|x|✓)$/i;
+  function onCompChange(e) {
+    const t = e.target;
+    if (!t.dataset || t.dataset.sh !== "comp") return;
+    const c = ctx(t);
+    if (!c) return;
+    const { p, v } = c, ci = +t.dataset.ci, k = +t.dataset.k;
+    const cur = v.comps.map((x) => Object.assign({}, x, { flags: Object.assign({}, x.flags) }));
+    const comp = cur[ci];
+    if (!comp) return;
+    const text = t.value.trim();
+    const back = () => { t.value = compText(comp, k); };
+    if (k === 0) { if (!text) return back(); comp.url = text; delete comp.id; }
+    else if (k >= 1 && k <= 5) {
+      const f = [null, "revenue", "bedrooms", "sleeps", "adr", "occupancy"][k];
+      if (!text) comp[f] = null;
+      else {
+        let n = parseNum(text);
+        if (n == null) return back();
+        if (k === 5) n = Math.round(Math.max(0, n) * 100) / 10000;   // typed as a percent, as the sheet shows it
+        comp[f] = n;
+      }
+    } else if (k >= 6 && k <= 13) comp.flags[c.st.L.comps.flags[k - 6]] = FLAG_ON.test(text) ? 1 : 0;
+    else comp.notes = t.value;
+    UW.setComps(p.id, v.label, cur, { quiet: true });
+    const order = UWCsv.sortComps(cur), where = new Map(cur.map((x, i) => [i, order.indexOf(x)]));
+    const cells = [...c.card.querySelectorAll('[data-sh="comp"]')];
+    cells.forEach((el) => { el.dataset.ci = where.get(+el.dataset.ci); });
+    t.value = compText(comp, k);
+    UW.emit("property", p.id);
+  }
+  // What a comp cell shows once saved (the sheet's own formats).
+  function compText(c, k) {
+    switch (k) {
+      case 0: return c.url || "";
+      case 1: return c.revenue == null ? "" : UWCsv.dollars2(c.revenue);
+      case 2: return c.bedrooms == null ? "" : String(Math.round(c.bedrooms * 100) / 100);
+      case 3: return c.sleeps == null ? "" : String(Math.round(c.sleeps * 100) / 100);
+      case 4: return c.adr == null ? "" : UWCsv.dollars2(c.adr);
+      case 5: return c.occupancy == null ? "" : UWCsv.pctCell(c.occupancy, 2);
+      case 14: return c.notes || "";
+    }
+    return "";
+  }
+
   S.init = function () {
     const lists = document.getElementById("uw-lists");
+    lists.addEventListener("change", onCompChange);
     lists.addEventListener("input", onInput);
     lists.addEventListener("focusin", onFocus);
     lists.addEventListener("focusout", onBlur);

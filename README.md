@@ -34,6 +34,10 @@ Static site (no build step for the page): the Santa Rosa Beach / Gulf Shores **U
 - No default revenue floor (`minRevDefault` null): the market median is about $47k (top 25% from $66k, top 10% from $91k), so the coastal pages' $90k would hide most homes. Set one with "Revenue ≥" above the map.
 - `../notebooks/flagstaff_city_tiger.json` (TIGERweb, fetched 2026-11-26) and `../notebooks/flagstaff_geo.json` (Overpass, 2026-11-26) are the cached geography; the build copies them into `data/geo.json`.
 
+## Sheet tab: editable comp table
+
+In a target's Sheet tab (the UW sheet cell for cell) the comp table is editable too: URL, Revenue Potential, Bedrooms, Sleeps, ADR, Occupancy (type it as a percent), the eight amenity 1 / 0 cells and Notes. A cell is saved when you leave it, in the same yellow-input style as the other cells, and Download UW CSV carries the edits. A row is tied to its comp by its URL, and the stored comps stay in revenue order, so a revenue edit can move a comp but later edits on that row still land on the right comp; the on-screen rows re-sort the next time the sheet is opened. Rows are existing comps only (add comps from the map or lists).
+
 ## OPEX defaults by size (new listings)
 
 A new listing from the blank sheet gets these on top of the standard OPEX lines (`OPEX_BY_BEDROOMS`, `OPEX_BY_SQFT` in `js/underwritten/uw-rules.js`). They were supplied under the "Blue Ridge, GA" name and set here for Flagstaff. Bedrooms use the projected count if given, else the listed one (studio = 1, 8+ = 7); sqft picks the smallest row that covers the home (1,800 sqft uses the 2,000 row; above 4,500 uses the 4,500 row). With no bedrooms or sqft entered, those lines stay at the generic defaults. Everything stays editable on the Sheet tab; editing a saved listing's bedrooms later does not re-price it.
