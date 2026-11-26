@@ -116,6 +116,7 @@
     UW.areaById = Object.fromEntries(comps.areas.map((a) => [a.id, a]));
     UWGeo.init(geo, UW.listings);
     UW.loadPicked();
+    UW.loadMine();
     // A new listing starts from the blank template (underwriting/template/), or from an underwritten target's sheet.
     UW.templates = (uw.templates || []).map((t) => ({ pid: null, label: t.label, file: t.file, path: t.path, street: t.street, inputs: t.inputs, blank: true }))
       .concat(uw.properties.flatMap((p) => p.versions.map((v) => ({ pid: p.id, label: v.label, file: v.file, street: p.street, scenario: v.scenario }))));
@@ -513,11 +514,83 @@
   };
   UW.pickMany = function (ids, on) { ids.forEach((id) => { if (on === false) UW.ui.picked.delete(id); else if (UW.byId.has(id)) UW.ui.picked.add(id); }); UW.pickChanged(); };
   /** Clear every picked comp; the message offers Undo for a few seconds. */
-  UW.clearPicked = function () {
+  UW.clearPicked = function (opts) {
     const prev = [...UW.ui.picked];
     if (!prev.length) return;
     UW.ui.picked.clear(); UW.pickChanged();
+    if (opts && opts.quiet) return;
     UW.toast("Cleared " + prev.length + " selected comp" + (prev.length === 1 ? "" : "s"), "", { label: "Undo", fn: () => UW.pickMany(prev) });
+  };
+
+  // ---------------------------------------------------------------------------
+  // My comps: ticked comps you confirmed, as a table like the UW sheet's comp columns (see uw-rules.js
+  // myCompRow). Kept in this browser (localStorage) until you remove them. Each can be marked
+  // Low / Mid / High (a colour only) and any cell can be edited.
+  // ---------------------------------------------------------------------------
+  const MY_KEY = "flagstaffUW.myComps";
+  UW.TIERS = [["low", "Low"], ["mid", "Mid"], ["high", "High"]];
+  UW.TIER_NAME = { low: "Low", mid: "Mid", high: "High" };
+  UW.myComps = [];
+  UW.ui.confirmTier = null;
+  UW.loadMine = function () {
+    try {
+      const a = JSON.parse(localStorage.getItem(MY_KEY) || "[]");
+      if (Array.isArray(a)) UW.myComps = a.filter((e) => e && UW.byId.has(e.id)).map((e) => ({ id: e.id, tier: UWRules.MY_TIERS.includes(e.tier) ? e.tier : null, edits: e.edits && typeof e.edits === "object" ? e.edits : {}, added: e.added || 0 }));
+    } catch (e) { /* storage blocked or unreadable: start empty */ }
+  };
+  function saveMine(quiet) {
+    try { localStorage.setItem(MY_KEY, JSON.stringify(UW.myComps)); } catch (e) { /* storage blocked: this page only */ }
+    UW.emit("mine", { quiet: !!quiet });
+  }
+  UW.mineEntry = (id) => UW.myComps.find((e) => e.id === id);
+  /** The sheet row for an entry: the listing's own values with the user's edits on top. */
+  UW.mineRow = (e) => { const l = UW.byId.get(e.id); return UWRules.myCompRow(l, e, UW.noteFor(l, null)); };
+  UW.mineBase = (e) => { const l = UW.byId.get(e.id); return UWRules.rowFromListing(l, UW.noteFor(l, null)); };
+  UW.mineEdited = (e) => Object.keys(e.edits || {}).length > 0;
+  /** Add comps (each at most once); tier (optional) marks the new ones, and an already-added one takes it too. */
+  UW.mineAdd = function (ids, tier) {
+    let added = 0, had = 0;
+    ids.forEach((id) => {
+      if (!UW.byId.has(id) || !UW.canPick(id)) return;
+      const e = UW.mineEntry(id);
+      if (e) { had++; if (tier) e.tier = tier; } else { UW.myComps.push({ id, tier: tier || null, edits: {}, added: Date.now() }); added++; }
+    });
+    if (added || had) saveMine();
+    return { added, had };
+  };
+  /** The Confirm step: the ticked comps go to My comps (optionally marked), the ticks are cleared, the message links to the table. */
+  UW.confirmPicked = function (tier) {
+    const ids = [...UW.ui.picked];
+    if (!ids.length) { UW.toast("Tick some comps first", "warn"); return; }
+    const r = UW.mineAdd(ids, tier || null);
+    UW.clearPicked({ quiet: true });
+    if (UW.listApi) UW.listApi.setView("mine");  // the list below the map now shows My comps
+    UW.toast((r.added ? "Added " + r.added + " comp" + (r.added === 1 ? "" : "s") + " to My comps" : "Already in My comps") + (r.had && r.added ? " (" + r.had + " were already there)" : "") + (tier ? ", marked " + UW.TIER_NAME[tier] : ""), "",
+      { label: "View", fn: () => UW.listApi.show("mine") });
+  };
+  UW.mineRemove = function (id) { UW.myComps = UW.myComps.filter((e) => e.id !== id); saveMine(); };
+  /** Remove everything; the message offers Undo. */
+  UW.mineClear = function () {
+    const prev = UW.myComps;
+    if (!prev.length) return;
+    UW.myComps = [];
+    saveMine();
+    UW.toast("Removed " + prev.length + " comp" + (prev.length === 1 ? "" : "s") + " from My comps", "", { label: "Undo", fn: () => { UW.myComps = prev; saveMine(); } });
+  };
+  UW.mineSetTier = function (id, tier) { const e = UW.mineEntry(id); if (!e) return; e.tier = e.tier === tier ? null : tier; saveMine(); };
+  UW.mineResetRow = function (id) { const e = UW.mineEntry(id); if (!e) return; e.edits = {}; saveMine(); };
+  /** Edit one cell. value === null puts the cell back to the workbook's value. quiet: no table redraw (so Tab keeps moving between cells). */
+  UW.mineEdit = function (id, field, value, flag) {
+    const e = UW.mineEntry(id);
+    if (!e) return;
+    const base = UW.mineBase(e);
+    if (field === "flags") {
+      const fl = Object.assign({}, e.edits.flags || {});
+      if (value === null || value === base.flags[flag]) delete fl[flag]; else fl[flag] = value;
+      if (Object.keys(fl).length) e.edits.flags = fl; else delete e.edits.flags;
+    } else if (value === null || value === base[field]) delete e.edits[field];
+    else e.edits[field] = value;
+    saveMine(true);
   };
 
   // Stats leave error rows out (they aren't valid comps); "excluded" says how many.

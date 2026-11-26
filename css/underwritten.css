@@ -752,7 +752,7 @@ td.sh-in.sh-block { vertical-align: top !important; }
 
 /* Selection tray (bottom centre of the map) */
 /* In the free strip right of the legend, above the attribution line. */
-.uw-tray { position: absolute; left: 300px; right: 16px; bottom: 26px; margin-inline: auto; width: max-content; z-index: 800; display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; justify-content: center;
+.uw-tray { position: absolute; left: 300px; right: 16px; bottom: 26px; margin-inline: auto; width: max-content; z-index: 800; display: flex; align-items: center; gap: 6px 8px; flex-wrap: wrap; justify-content: center;
   max-width: calc(100% - 316px); padding: 8px 12px; background: #fff; border: 1px solid color-mix(in srgb, #1d4ed8 40%, white); border-radius: 12px; box-shadow: 0 4px 14px rgba(11, 47, 40, 0.18); font-size: 0.86rem; }
 .uw-tray.is-empty { border-color: var(--color-border); background: rgba(255, 255, 255, 0.92); box-shadow: var(--shadow); padding: 6px 12px; }
 .uw-tray__n { color: var(--text-primary); }
@@ -839,3 +839,50 @@ td.sh-in.sh-block { vertical-align: top !important; }
 /* Comp list: the bar stays in view while you scroll the table, with a way back up to the map */
 .uw-clist__bar { position: sticky; top: 71px; z-index: 5; background: var(--color-bg); padding: 8px 0; margin-top: -8px; }
 .uw-clist__back { white-space: nowrap; }
+
+/* My comps: an editable table in the UW sheet's comp columns; Low / Mid / High = light green / green / dark green */
+:root { --tier-low-mark: #bfe8c9; --tier-mid-mark: #4fb872; --tier-high-mark: #17692f; --tier-low-row: #e8f7ec; --tier-mid-row: #c4e9ce; --tier-high-row: #8fcf9f; }
+.uw-tier { font: inherit; font-size: 0.74rem; font-weight: 700; line-height: 1; padding: 5px 9px; border-radius: 6px; border: 1px solid transparent; cursor: pointer; display: inline-block; }
+.uw-tier--low { background: #eaf8ee; color: #1c5b34; border-color: var(--tier-low-mark); }
+.uw-tier--mid { background: #e6f6ea; color: #14602f; border-color: var(--tier-mid-mark); }
+.uw-tier--high { background: #e4f3e8; color: #0f4d24; border-color: var(--tier-high-mark); }
+.uw-tier--low[aria-pressed="true"] { background: var(--tier-low-mark); color: #14472a; border-color: #7fcf95; }
+.uw-tier--mid[aria-pressed="true"] { background: var(--tier-mid-mark); color: #fff; border-color: #2f9a55; }
+.uw-tier--high[aria-pressed="true"] { background: var(--tier-high-mark); color: #fff; border-color: #0d4f22; }
+.uw-tier:focus-visible { outline: none; box-shadow: var(--uw-focus); }
+.uw-tiers { display: inline-flex; gap: 3px; }
+.uw-mine__t td { vertical-align: middle; }
+.uw-mine.tier-low td { background: var(--tier-low-row); }
+.uw-mine.tier-mid td { background: var(--tier-mid-row); }
+.uw-mine.tier-high td { background: var(--tier-high-row); }
+.uw-mine.tier-low td:first-child { box-shadow: inset 5px 0 0 var(--tier-low-mark); }
+.uw-mine.tier-mid td:first-child { box-shadow: inset 5px 0 0 var(--tier-mid-mark); }
+.uw-mine.tier-high td:first-child { box-shadow: inset 5px 0 0 var(--tier-high-mark); }
+.uw-mtier { white-space: nowrap; padding-left: 12px !important; }
+.uw-m-in { font: inherit; font-size: 0.82rem; padding: 4px 6px; border: 1px solid transparent; border-radius: 5px; background: rgba(255, 255, 255, 0.55); color: var(--text-primary); min-width: 0; }
+.uw-m-in:hover { border-color: var(--color-border); background: #fff; }
+.uw-m-in:focus { outline: none; border-color: var(--color-primary-light); background: #fff; box-shadow: var(--uw-focus); }
+.uw-m-rev { width: 7.4em; text-align: right; } .uw-m-md { width: 6.6em; text-align: right; } .uw-m-sm { width: 5.4em; text-align: right; }
+.uw-m-in::-webkit-outer-spin-button, .uw-m-in::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.uw-m-in[type=number] { -moz-appearance: textfield; appearance: textfield; }
+.uw-mine__t th { padding-right: 10px; }
+.uw-m-url { width: 15em; } .uw-m-notes { width: 24em; max-width: 36vw; }
+.uw-m-pct { font-size: 0.78rem; color: var(--color-text-muted); margin-left: 2px; }
+.uw-mcell.is-edited .uw-m-in { background: #fff6c9; border-color: #ecaa4a; }
+.uw-mcell.is-edited.uw-mflag { background: #fff6c9 !important; }
+.uw-mflag { text-align: center; }
+.uw-mflag input { width: 16px; height: 16px; accent-color: var(--uw-good); cursor: pointer; }
+.uw-clist__t th.uw-mflag { font-size: 0.7rem; padding: 8px 4px; white-space: normal; min-width: 4.2em; line-height: 1.1; }
+.uw-mact { white-space: nowrap; padding-right: 10px !important; }
+.uw-mreset { visibility: hidden; margin-right: 6px; font-size: 1rem; }
+.uw-mine.has-edits .uw-mreset { visibility: visible; }
+.uw-mrm { font-size: 1.15rem; line-height: 1; color: var(--uw-bad); }
+/* Rows already in My comps, in the other lists */
+.uw-clist__t tr.in-mine td:first-child { box-shadow: inset 4px 0 0 #9aa8a3; }
+.uw-clist__t tr.in-mine.tier-low td:first-child { box-shadow: inset 4px 0 0 var(--tier-low-mark); }
+.uw-clist__t tr.in-mine.tier-mid td:first-child { box-shadow: inset 4px 0 0 var(--tier-mid-mark); }
+.uw-clist__t tr.in-mine.tier-high td:first-child { box-shadow: inset 4px 0 0 var(--tier-high-mark); }
+.uw-inmine { font-size: 0.68rem; font-weight: 700; color: var(--uw-good); background: var(--uw-good-bg); border-radius: 99px; padding: 1px 7px; white-space: nowrap; }
+.uw-tray__mark { font-size: 0.8rem; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 5px; }
+.uw-tray__mark select { font: inherit; font-size: 0.8rem; padding: 3px 22px 3px 7px; border: 1px solid var(--color-border); border-radius: 6px; background-color: #fff; color: var(--text-primary); }
+.uw-dtip__mine { color: var(--uw-good) !important; font-weight: 700; }

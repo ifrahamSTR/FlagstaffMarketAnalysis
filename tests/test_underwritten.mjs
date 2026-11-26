@@ -248,6 +248,27 @@ console.log("\nZILLOW SEARCH LINKS: the frame, the filters, the URL\n");
 }
 
 // ---------------------------------------------------------------------------
+console.log("\nMY COMPS: a comp's sheet row with the user's edits on top; the Low / Mid / High mark is a colour only\n");
+{
+  const bad = (m) => fail("my comps: " + m);
+  const l = listings[3];
+  const own = R.rowFromListing(l, "n");
+  const plain = R.myCompRow(l, { id: l.id, tier: null, edits: {} }, "n");
+  if (JSON.stringify(Object.assign({}, plain, { tier: undefined })) !== JSON.stringify(Object.assign({}, own, { tier: undefined })) || plain.tier !== null) bad("an unedited entry is not the listing's own row");
+  const e = { id: l.id, tier: "high", edits: { revenue: 99999, bedrooms: 4, sleeps: 9, adr: 301.5, occupancy: 0.5, url: " https://www.airbnb.com/rooms/1 ", notes: "my note", flags: { hot_tub: 0, sauna: 1 } } };
+  const r = R.myCompRow(l, e, "n");
+  if (!(r.revenue === 99999 && r.bedrooms === 4 && r.sleeps === 9 && r.adr === 301.5 && r.occupancy === 0.5 && r.url === "https://www.airbnb.com/rooms/1" && r.notes === "my note" && r.flags.hot_tub === 0 && r.flags.sauna === 1 && r.tier === "high")) bad("edits not applied: " + JSON.stringify(r));
+  if (r.flags.game_room !== own.flags.game_room || l.revenue === 99999) bad("an unedited flag changed, or the listing itself was changed");
+  if (R.myCompRow(l, { id: l.id, tier: "purple", edits: {} }, "n").tier !== null) bad("an unknown mark is kept");
+  if (R.myCompRow(l, { id: l.id, tier: "mid", edits: { notes: "" } }, "n").notes !== "") bad("a notes cell the user emptied comes back");
+  if (R.myCompRow(l, { id: l.id, edits: { revenue: "abc", bedrooms: NaN } }, "n").revenue !== own.revenue) bad("a non-number replaced a value");
+  const a = R.myCompRow(listings[0], { id: listings[0].id, tier: "low", edits: { revenue: 1000 } }, ""), b = R.myCompRow(listings[1], { id: listings[1].id, tier: null, edits: { revenue: 500000 } }, "");
+  const lines = C.compsTSV([a, b]).split("\n");
+  if (!(lines.length === 2 && lines.every((x) => x.split("\t").length === 15) && lines[0].split("\t")[1] === "500000" && lines[1].split("\t")[1] === "1000" && !/low|mid|high/i.test(lines.join("")))) bad("sheet rows: not 15 columns, not revenue high to low on the edited values, or the mark leaked into the text");
+  console.log("  " + (failures ? "FAIL" : "ok  ") + " edits (revenue, bedrooms, sleeps, ADR, occupancy, URL, notes, amenity flags) sit on top of the listing's own row; marks are colour only; copy rows are 15 columns in edited-revenue order");
+}
+
+// ---------------------------------------------------------------------------
 console.log("\nSTANDARD OPEX LINES: every new sheet carries all fifteen, priced (Galveston file 101, rounded)\n");
 {
   const bad = (m) => fail("standard OPEX: " + m);

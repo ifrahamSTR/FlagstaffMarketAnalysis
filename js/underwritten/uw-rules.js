@@ -380,6 +380,24 @@
   }
 
   // ---------------------------------------------------------------------------
+  // My comps: comps the user ticked and confirmed, kept as a table shaped like the UW sheet's comp
+  // columns. An entry is {id, tier: low|mid|high|null, edits}; edits hold only what the user changed
+  // (url, revenue, bedrooms, sleeps, adr, occupancy as a fraction, notes, flags {name: 0|1}).
+  // The row is the listing's own comp row with those edits on top. The tier is a colour mark only:
+  // it is never written into the notes or the revenue cases.
+  // ---------------------------------------------------------------------------
+  const MY_TIERS = ["low", "mid", "high"];
+  function myCompRow(l, entry, note) {
+    const row = rowFromListing(l, note), e = (entry && entry.edits) || {};
+    if (typeof e.url === "string" && e.url.trim()) row.url = e.url.trim();
+    ["revenue", "bedrooms", "sleeps", "adr", "occupancy"].forEach((k) => { if (typeof e[k] === "number" && isFinite(e[k])) row[k] = e[k]; });
+    if (typeof e.notes === "string") row.notes = e.notes;
+    row.flags = Object.assign({}, row.flags, e.flags || {});
+    row.tier = entry && MY_TIERS.includes(entry.tier) ? entry.tier : null;
+    return row;
+  }
+
+  // ---------------------------------------------------------------------------
   // Flagstaff defaults by size (the user's tables, 2026-11-26; supplied under the "Blue Ridge, GA" name):
   //  - by bedrooms: cleaning cost per turn, turns a year, CapEx reserve, insurance (HOI), household supplies, software;
   //  - by property size (sqft): internet, pest control, utilities.
@@ -420,6 +438,6 @@
     return { inputs: out, used: { beds: bt ? Math.min(7, Math.max(1, Math.round(size.beds))) : null, sqft: st ? st.sqft : null } };
   }
 
-  return { OPEX_BY_BEDROOMS, OPEX_BY_SQFT, bedTier, sqftTier, withSizeDefaults, STANDARD_OPEX, STANDARD_CLEANING, withStandardOpex, STANDARD_SETUP, withStandardSetup, setupKey, SHEET_FLAGS, FLAG_LABEL, CLASSES, TAG, roomId, isZillow, valueChanges, classify, canPick, miles, autoNote, retag, rowFromListing, addToSet, appendDistance, parseNotes,
+  return { MY_TIERS, myCompRow, OPEX_BY_BEDROOMS, OPEX_BY_SQFT, bedTier, sqftTier, withSizeDefaults, STANDARD_OPEX, STANDARD_CLEANING, withStandardOpex, STANDARD_SETUP, withStandardSetup, setupKey, SHEET_FLAGS, FLAG_LABEL, CLASSES, TAG, roomId, isZillow, valueChanges, classify, canPick, miles, autoNote, retag, rowFromListing, addToSet, appendDistance, parseNotes,
     PROFILE_FLAGS, AMENITY_ORDER, MATCH_ONLY, PROFILE_LABEL, profilePrefill, profileWith, amenityInfo, matchLocation, matchAmenity, flagOf, WATER_LOC };
 });

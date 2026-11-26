@@ -207,9 +207,89 @@ await fresh.close();
 await ev(() => { UW.clearPicked(); UW.resetFilters(); });
 await page.waitForTimeout(200);
 
+console.log("\n1c. MY COMPS\n");
+{
+  const rowsN = () => page.locator(".uw-mine__t tbody tr").count();
+  const toasts = () => ev(() => [...document.querySelectorAll(".uw-toast")].map((t) => t.innerText).join(" | "));
+  const lum = (sel) => ev((sel) => { const c = getComputedStyle(document.querySelector(sel)).backgroundColor.match(/\d+/g).map(Number); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; }, sel);
+  await ev(() => { localStorage.removeItem("flagstaffUW.myComps"); localStorage.removeItem("flagstaffUW.listPrefs"); UW.myComps = []; UW.ui.confirmTier = null; UW.listApi.setView("picked"); });
+  const ids = await ev(() => UW.listings.slice(0, 4).map((l) => l.id));
+  await ev((ids) => UW.pickMany(ids), ids);
+  await ev(() => document.getElementById("uw-map").scrollIntoView()); await page.waitForTimeout(300);
+  check(await page.locator('.uw-tray [data-tr=confirm]').isVisible() && await page.locator('.uw-tray select[data-tr=tier] option').allInnerTexts().then((t) => t.join() === "unmarked,Low,Mid,High"), "the tray shows ✓ Confirm to My comps and an optional Mark: unmarked / Low / Mid / High");
+  await page.selectOption('.uw-tray select[data-tr=tier]', "mid");
+  await page.click('.uw-tray [data-tr=confirm]'); await page.waitForTimeout(400);
+  const c1 = await ev(() => ({ n: UW.myComps.length, tiers: UW.myComps.map((e) => e.tier), ids: UW.myComps.map((e) => e.id), picked: UW.ui.picked.size, tab: document.querySelector('.uw-clist__bar [aria-pressed="true"]').innerText, toast: [...document.querySelectorAll(".uw-toast")].map((t) => t.innerText).join(" | ") }));
+  check(c1.n === 4 && c1.tiers.every((t) => t === "mid") && c1.ids.join() === ids.join() && c1.picked === 0, "Confirm: the 4 ticked comps are in My comps, marked Mid, and the ticks are cleared");
+  check(/^My comps/.test(c1.tab) && /Added 4 comps to My comps, marked Mid/.test(c1.toast) && /View/.test(c1.toast) && await rowsN() === 4, "the list below the map now shows My comps (4 rows); the message says what was added");
+  await ev((ids) => UW.pickMany([ids[0]]), ids);
+  await page.click('.uw-tray [data-tr=confirm]'); await page.waitForTimeout(300);
+  check(await ev(() => UW.myComps.length === 4 && UW.ui.picked.size === 0 && /Already in My comps/.test([...document.querySelectorAll(".uw-toast")].map((t) => t.innerText).join(" | "))), "confirming a comp that is already there adds nothing twice");
+  await ev(() => document.getElementById("uw-complist").scrollIntoView()); await page.waitForTimeout(400);
+  // Marks: Low / Mid / High as light green / green / dark green; a second click un-marks.
+  await page.click('.uw-mine__t tbody tr:nth-child(1) [data-t=low]');
+  await page.click('.uw-mine__t tbody tr:nth-child(2) [data-t=high]');
+  await page.waitForTimeout(200);
+  const [lo, mi, hi] = [await lum(".uw-mine__t tbody tr:nth-child(1) td:nth-child(3)"), await lum(".uw-mine__t tbody tr:nth-child(3) td:nth-child(3)"), await lum(".uw-mine__t tbody tr:nth-child(2) td:nth-child(3)")];
+  check(lo > mi && mi > hi && /tier-low/.test(await page.getAttribute(".uw-mine__t tbody tr:nth-child(1)", "class")) && /tier-high/.test(await page.getAttribute(".uw-mine__t tbody tr:nth-child(2)", "class")), "Low, Mid and High rows are three greens, light to dark (" + [lo, mi, hi].map(Math.round).join(" > ") + ")");
+  await page.click('.uw-mine__t tbody tr:nth-child(1) [data-t=low]'); await page.waitForTimeout(150);
+  check(await ev(() => UW.myComps[0].tier === null), "clicking the same mark again takes it off");
+  await page.click('.uw-mine__t tbody tr:nth-child(1) [data-t=low]'); await page.waitForTimeout(250);
+  check(await ev(() => UW.ui.picked.size === 0 && JSON.stringify(UW.myComps.map((e) => e.edits)) === "[{},{},{},{}]"), "marking never changes revenue or any other cell");
+  // Editing: type a revenue, Tab to the next cell (the table must not redraw under you), change notes and an amenity.
+  const orig = await ev(() => UW.byId.get(UW.myComps[0].id).revenue);
+  await page.fill('.uw-mine__t tbody tr:nth-child(1) [data-m=revenue]', "99000"); await page.keyboard.press("Tab"); await page.waitForTimeout(200);
+  const act1 = await ev(() => document.activeElement.dataset.m);
+  check(act1 === "bedrooms", "Tab after editing a revenue moves to the next cell (no redraw): focus is on " + act1);
+  await page.fill('.uw-mine__t tbody tr:nth-child(1) [data-m=notes]', "my note"); await page.keyboard.press("Tab"); await page.waitForTimeout(100);
+  const flag0 = await page.isChecked('.uw-mine__t tbody tr:nth-child(1) [data-m=flag][data-f=sauna]');
+  await page.click('.uw-mine__t tbody tr:nth-child(1) [data-m=flag][data-f=sauna]'); await page.waitForTimeout(150);
+  const e1 = await ev(() => ({ edits: UW.myComps[0].edits, tr: document.querySelector(".uw-mine__t tbody tr:nth-child(1)").className, td: document.querySelector('.uw-mine__t tbody tr:nth-child(1) [data-m=revenue]').closest("td").className, stored: JSON.parse(localStorage.getItem("flagstaffUW.myComps"))[0].edits, reset: getComputedStyle(document.querySelector(".uw-mine__t tbody tr:nth-child(1) .uw-mreset")).visibility }));
+  check(e1.edits.revenue === 99000 && e1.edits.notes === "my note" && e1.edits.flags.sauna === (flag0 ? 0 : 1) && /has-edits/.test(e1.tr) && /is-edited/.test(e1.td) && e1.reset === "visible" && e1.stored.revenue === 99000, "edits are kept (revenue 99000, notes, an amenity flag), the changed cells and row are marked, and they are saved");
+  check(await ev((o) => UW.byId.get(UW.myComps[0].id).revenue === o, orig), "the workbook's own value is untouched");
+  // Copy: the sheet's 15 columns with every edit, revenue high to low, no colours or marks in the text.
+  await page.click('[data-l=mine-copy]'); await page.waitForTimeout(250);
+  const t = (await clip()).split("\n"), cols = t.map((l) => l.split("\t"));
+  const mine0 = cols.find((c) => c[0].includes("/rooms/" + ids[0].replace(/\D/g, "")) || c[0].includes(ids[0]));
+  check(t.length === 4 && cols.every((c) => c.length === 15) && mine0 && mine0[1] === "99000" && mine0[14] === "my note" && cols.every((c, i) => !i || +c[1] <= +cols[i - 1][1]) && !/\b(low|mid|high)\b/i.test(t.join("\n")),
+    "Copy for UW sheet: 4 rows, 15 columns, the edited revenue and note, revenue high to low, no marks in the text");
+  await page.check('[data-l=header]'); await page.waitForTimeout(150);
+  await page.click('[data-l=mine-copy]'); await page.waitForTimeout(250);
+  const th = (await clip()).split("\n");
+  check(th.length === 5 && th[0].startsWith("Listing URL\tRevenue Potential\tBedrooms\tSleeps\tADR\tOccupancy\tHAS_hot_tub\tFirepit") && th[0].endsWith("Notes"), "with “Header row” the sheet's own column names come first");
+  await page.uncheck('[data-l=header]');
+  const [dl] = await Promise.all([page.waitForEvent("download"), page.click('[data-l=mine-csv]')]);
+  const csv = readFileSync(await dl.path(), "utf8").split(/\r?\n/);
+  check(csv.length === 5 && /^﻿Listing URL,Title,Mark,Revenue Potential/.test(csv[0]) && csv.some((x) => /,High,/.test(x)) && csv.some((x) => /,Mid,/.test(x)), "Download CSV has Title and Mark columns besides the sheet's");
+  // The other lists tell you what is already in My comps.
+  await page.click('[data-l=view][data-v=shown]'); await page.waitForTimeout(300);
+  check(await page.locator(".uw-clist__t tr.in-mine").count() >= 1 && await page.locator(".uw-clist__t .uw-inmine").count() >= 1, "rows already in My comps show “✓ My comps” in the other lists");
+  await page.click('[data-l=view][data-v=mine]'); await page.waitForTimeout(300);
+  // Reset a row, remove a row, remove all + Undo.
+  await page.click('.uw-mine__t tbody tr:nth-child(1) [data-l=mine-reset]'); await page.waitForTimeout(200);
+  check(await ev((o) => Object.keys(UW.myComps[0].edits).length === 0 && +document.querySelector('.uw-mine__t tbody tr:nth-child(1) [data-m=revenue]').value === Math.round(o), orig), "↺ puts the row back to the workbook's values (the mark stays)");
+  await page.click('.uw-mine__t tbody tr:nth-child(4) [data-l=mine-remove]'); await page.waitForTimeout(200);
+  check(await rowsN() === 3 && await ev(() => UW.myComps.length === 3), "× removes one comp from My comps");
+  await ev(() => UW.mineEdit(UW.myComps[1].id, "revenue", 77000));
+  await page.click('[data-l=mine-clear]'); await page.waitForTimeout(200);
+  check(await ev(() => UW.myComps.length === 0 && /Removed 3 comps/.test([...document.querySelectorAll(".uw-toast")].map((t) => t.innerText).join(" | "))) && await page.locator(".uw-clist .uw-empty").count() === 1, "Remove all empties My comps and says what to do next");
+  await page.click(".uw-toast__act"); await page.waitForTimeout(250);
+  check(await ev(() => UW.myComps.length === 3 && UW.myComps[1].edits.revenue === 77000), "Undo brings them back with their edits");
+  // Kept in this browser (unlike the per-tab ticks): survives a reload and shows in a new tab.
+  await page.reload({ waitUntil: "networkidle" }); await page.waitForTimeout(500);
+  check(await ev(() => UW.myComps.length === 3 && UW.myComps[0].tier === "low" && UW.myComps[1].tier === "high" && UW.myComps[1].edits.revenue === 77000) && /My comps/.test(await page.innerText('.uw-clist__bar [aria-pressed="true"]')), "My comps (marks and edits) survive a reload, and the list opens on it");
+  const tab2 = await ctx.newPage();
+  await tab2.goto(BASE + "underwritten.html", { waitUntil: "networkidle" }); await tab2.waitForTimeout(400);
+  check(await tab2.evaluate(() => UW.myComps.length === 3 && UW.ui.picked.size === 0), "a new tab has My comps but nothing ticked");
+  await tab2.close();
+  await ev(() => { UW.mineClear(); localStorage.removeItem("flagstaffUW.myComps"); localStorage.removeItem("flagstaffUW.listPrefs"); UW.listApi.setView("picked"); });
+  await page.waitForTimeout(200);
+}
+
 console.log("\n2. ADD A ZILLOW LISTING\n");
 const URL_ = "https://www.zillow.com/homedetails/1234-Toho-Trl-Kachina-Village-AZ-86001/99999999_zpid/";
 await page.click("#uw-add-btn");
+await page.waitForTimeout(150);  // the dialog moves focus to the URL field 30 ms after it opens; typing faster than that lands in the wrong field
 await page.fill("#f-url", URL_);
 await page.dispatchEvent("#f-url", "input");
 check((await page.inputValue("#f-addr")) === "1234 Toho Trl, Kachina Village, AZ 86001", "address read from the Zillow link: " + (await page.inputValue("#f-addr")));

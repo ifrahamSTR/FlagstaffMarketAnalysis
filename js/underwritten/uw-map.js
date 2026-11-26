@@ -151,6 +151,7 @@
     map.getContainer().appendChild(trayEl);
     L.DomEvent.disableClickPropagation(trayEl); L.DomEvent.disableScrollPropagation(trayEl);
     trayEl.addEventListener("click", onTrayClick);
+    trayEl.addEventListener("change", onTrayChange);
 
     map.on("popupopen", () => { const d = legendCtl.getContainer().querySelector("details"); if (d) d.open = false; });
     map.on("zoomend", zoomClass);
@@ -205,12 +206,14 @@
   function dotTip(l) {
     const F = UW.fmt, picked = UW.ui.picked.has(l.id), a = UW.areaById[l.area];
     const am = UW.ICON_ORDER.filter((k) => l.flagSet.has(k)).slice(0, 6).map((k) => UW.AMEN_LABEL[k].toLowerCase());
-    const hint = UW.ui.pickMode === "select" && !placing ? (picked ? "✓ Selected · click to remove" : "Click to select") : "Click for details";
+    const hint = UW.ui.pickMode === "select" && !placing ? (picked ? "✓ Ticked · click to untick" : "Click to tick") : "Click for details";
+    const mine = UW.mineEntry(l.id);
     return '<div class="uw-dtip"><p class="uw-dtip__t">' + E(l.title) + "</p>" +
       '<p class="uw-dtip__k"><strong>' + F.money(l.revenue) + "</strong> · " + F.beds(l.bedrooms) + " / " + F.num(l.baths) + " BA · sleeps " + F.num(l.sleeps) + "</p>" +
       '<p class="uw-dtip__m">' + F.money(l.adr) + "/night · " + F.pct(l.occ, 0) + " occupied" + (l.rating ? " · ★ " + F.num(l.rating) : "") + "</p>" +
       '<p class="uw-dtip__m"><span class="uw-dot" style="background:' + UW.LOC_COLORS[l.loc] + '"></span>' + E(l.loc) + " · " + E(a.name) + "</p>" +
       (am.length ? '<p class="uw-dtip__m">' + E(am.join(" · ")) + "</p>" : "") +
+      (mine ? '<p class="uw-dtip__m uw-dtip__mine">✓ In My comps' + (mine.tier ? " · marked " + UW.TIER_NAME[mine.tier] : "") + "</p>" : "") +
       '<p class="uw-dtip__h' + (picked ? " is-on" : "") + '">' + hint + "</p></div>";
   }
   function onDotClick(m) {
@@ -325,9 +328,11 @@
     const n = UW.ui.picked.size;
     trayEl.classList.toggle("is-empty", !n);
     trayEl.innerHTML = n ?
-      '<span class="uw-tray__n"><b>' + n + "</b> comp" + (n === 1 ? "" : "s") + " selected</span>" +
-      '<button type="button" class="uw-btn uw-btn--small uw-btn--primary" data-tr="copy" title="Tab-separated rows in the UW sheet’s 15 comp columns, revenue high to low">Copy for UW sheet</button>' +
-      '<button type="button" class="uw-btn uw-btn--small uw-btn--ghost" data-tr="list">Open comp list ↓</button>' +
+      '<span class="uw-tray__n"><b>' + n + "</b> comp" + (n === 1 ? "" : "s") + " ticked</span>" +
+      '<label class="uw-tray__mark">Mark <select data-tr="tier" aria-label="Mark the comps you confirm">' + [["", "unmarked"]].concat(UW.TIERS).map(([v, t]) => '<option value="' + v + '"' + ((UW.ui.confirmTier || "") === v ? " selected" : "") + ">" + t + "</option>").join("") + "</select></label>" +
+      '<button type="button" class="uw-btn uw-btn--small uw-btn--primary" data-tr="confirm" title="Add the ticked comps to My comps, a table you can edit and copy into the UW sheet">✓ Confirm to My comps</button>' +
+      '<button type="button" class="uw-btn uw-btn--small uw-btn--ghost" data-tr="copy" title="Tab-separated rows in the UW sheet’s 15 comp columns, revenue high to low">Copy</button>' +
+      '<button type="button" class="uw-btn uw-btn--small uw-btn--ghost" data-tr="list">Open list ↓</button>' +
       '<button type="button" class="uw-btn uw-btn--small uw-btn--ghost" data-tr="fit" title="Zoom to the selected comps">Zoom to them</button>' +
       '<button type="button" class="uw-linkbtn" data-tr="clear">Clear</button>' :
       '<span class="uw-tray__hint">' + (UW.ui.pickMode === "select" ? "Click comps to select them · Shift + drag to box-select" : "Details mode: click a comp for its details, or switch to Select (top left)") + "</span>";
@@ -340,6 +345,10 @@
     else if (k === "list") { if (UW.listApi) UW.listApi.show("picked"); }
     else if (k === "fit") { const pts = ids.map((id) => UW.byId.get(id)).filter(Boolean).map((l) => [l.lat, l.lng]); if (pts.length) map.flyToBounds(L.latLngBounds(pts).pad(0.2), { maxZoom: 15, duration: 0.6 }); }
     else if (k === "clear") UW.clearPicked();
+    else if (k === "confirm") UW.confirmPicked(UW.ui.confirmTier);
+  }
+  function onTrayChange(e) {
+    if (e.target.dataset.tr === "tier") UW.ui.confirmTier = e.target.value || null;
   }
 
   // ---------------------------------------------------------------------------
