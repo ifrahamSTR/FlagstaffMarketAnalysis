@@ -76,6 +76,33 @@ check(s0.minRev === null && s0.shown === 856, "no default revenue floor: " + s0.
 check(/^856\n/.test(s0.hero) && s0.village && s0.peaks, "hero shows the 856 comps; city limits and mountains on by default");
 check(s0.labels.some((t) => /Humphreys Peak12,633 ft/.test(t)) && s0.labels.some((t) => /Mount Elden/.test(t)) && s0.downtown && s0.ski, "Humphreys Peak (12,633 ft), Mount Elden, downtown and Arizona Snowbowl marked");
 
+console.log("\n1a. ZILLOW SEARCH STRIP\n");
+{
+  const bounds = (href) => JSON.parse(decodeURIComponent(href.split("searchQueryState=")[1]));
+  const href = () => page.locator(".uw-zs [data-z=go]").getAttribute("href");
+  const C0 = await ev(() => UW.data.comps.marketBbox);
+  let q = bounds(await href());
+  check(q.mapBounds.south === C0[0] && q.mapBounds.west === C0[1] && q.mapBounds.north === C0[2] && q.mapBounds.east === C0[3] && !q.filterState.beds, "strip opens on the whole market by default, no bed / bath minimum");
+  await page.selectOption(".uw-zs [data-z=where]", "kachina");
+  await page.selectOption(".uw-zs [data-z=beds]", "3");
+  await page.selectOption(".uw-zs [data-z=baths]", "2");
+  const kb = await ev(() => UW.data.comps.areas.find((a) => a.id === "kachina").bbox);
+  q = bounds(await href());
+  check(q.mapBounds.south === kb[0] && q.mapBounds.east === kb[3] && q.filterState.beds.min === 3 && q.filterState.baths.min === 2, "Kachina Village + 3 beds + 2 baths: its own frame and both minimums in the link");
+  await page.selectOption(".uw-zs [data-z=where]", "view");
+  await ev(() => UW.mapApi.map.setView([35.199, -111.652], 14, { animate: false }));
+  await page.waitForTimeout(300);
+  await page.hover(".uw-zs [data-z=go]");
+  const mv = await ev(() => { const b = UW.mapApi.map.getBounds(); return [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()]; });
+  q = bounds(await href());
+  check(Math.abs(q.mapBounds.south - mv[0]) < 1e-4 && Math.abs(q.mapBounds.west - mv[1]) < 1e-4 && Math.abs(q.mapBounds.north - mv[2]) < 1e-4 && Math.abs(q.mapBounds.east - mv[3]) < 1e-4, "“This map view” frames exactly what the map shows");
+  check((await page.locator(".uw-zs [data-z=go]").getAttribute("target")) === "_blank" && /^https:\/\/www\.zillow\.com\/flagstaff-az\/\?searchQueryState=/.test(await href()), "the link opens Zillow in a new tab");
+  await page.reload({ waitUntil: "networkidle" }); await page.waitForTimeout(400);
+  check((await page.inputValue(".uw-zs [data-z=where]")) === "view" && (await page.inputValue(".uw-zs [data-z=beds]")) === "3", "the choices are remembered");
+  await ev(() => localStorage.removeItem("flagstaffUW.zillow"));
+  await page.reload({ waitUntil: "networkidle" }); await page.waitForTimeout(400);
+}
+
 console.log("\n1b. COMP PICKER\n");
 await page.click('.uw-qchip[data-g="beds"][data-v="3"]');
 await page.click('.uw-qchip[data-g="baths"][data-v="2"]');

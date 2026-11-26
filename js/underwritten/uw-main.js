@@ -54,6 +54,7 @@
     UW.addApi.init();
     UW.checksApi.init();
     UW.listApi.init();
+    UWZillow.init(UW);
     renderHero();
     initNav();
 

@@ -145,6 +145,15 @@ listings = [listing(row) for _, row in df.iterrows()]
 
 # Area outlines exactly as the main page's overview map draws them (convex hull, 0.35 km buffer).
 coslat = np.cos(np.radians(df["Lat"].mean()))
+
+
+def bbox(g, pad=(0.01, 0.012)):
+    """[south, west, north, east] for a Zillow map search: the 2nd-98th percentile of the listings' coordinates
+    (a few far-out ranches and the Oak Creek Canyon cabins don't stretch it), padded about 1 km."""
+    lo, hi = g[["Lat", "Long"]].quantile(0.02), g[["Lat", "Long"]].quantile(0.98)
+    return [round(lo["Lat"] - pad[0], 4), round(lo["Long"] - pad[1], 4), round(hi["Lat"] + pad[0], 4), round(hi["Long"] + pad[1], 4)]
+
+
 areas_out = []
 for a in mc.AREA_ORDER:
     g = df[df["Area"] == a]
@@ -154,7 +163,7 @@ for a in mc.AREA_ORDER:
     kx = np.array([111 * coslat, 111.0])
     buf = [p + ((p - c) * kx / (np.linalg.norm((p - c) * kx) + 1e-9)) * 0.35 / kx for p in hull]
     areas_out.append({"id": mc.AREA_SHORT[a], "name": a, "sub": mc.AREA_SUB[a], "color": mc.AREA_COLORS[a],
-                      "n": int(len(g)), "hull": [[round(p[1], 5), round(p[0], 5)] for p in buf],
+                      "n": int(len(g)), "bbox": bbox(g), "hull": [[round(p[1], 5), round(p[0], 5)] for p in buf],
                       "label": [round(g["Lat"].median(), 5), round(g["Long"].median(), 5)]})
 
 size_med = df.groupby("size")["Revenue Potential"].median()
@@ -168,7 +177,7 @@ dump(DATA / "comps.json", {
     "sizeOrder": mc.SIZE_ORDER, "sizeMedian": {s: r(v) for s, v in size_med.items()},
     "locName": mc.LOC_NAME, "locOrder": mc.LOC_ORDER, "locDef": mc.LOC_DEF, "locColors": mc.LOC_COLORS, "zones": [mc.AREA_SHORT[a] for a in mc.AREA_ORDER],
     "zoneKind": "area", "distLabel": mc.DIST_LABEL, "water": mc.WATER,
-    "minRevDefault": MIN_REV, "downtownKm": mc.DOWNTOWN_KM, "marketMedian": r(df["Revenue Potential"].median()), "marketP75": r(P75), "marketP90": r(P90), "areas": areas_out,
+    "minRevDefault": MIN_REV, "downtownKm": mc.DOWNTOWN_KM, "marketBbox": [min(a["bbox"][0] for a in areas_out), min(a["bbox"][1] for a in areas_out), max(a["bbox"][2] for a in areas_out), max(a["bbox"][3] for a in areas_out)], "marketMedian": r(df["Revenue Potential"].median()), "marketP75": r(P75), "marketP90": r(P90), "areas": areas_out,
     "otherRooms": sorted(other["room"].dropna().tolist()),
     "listings": listings,
 })

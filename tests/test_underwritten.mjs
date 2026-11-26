@@ -23,6 +23,7 @@ const M = require(join(ROOT, "js/underwritten/uw-math.js"));
 const C = require(join(ROOT, "js/underwritten/uw-csv.js"));
 const G = require(join(ROOT, "js/underwritten/uw-geo.js"));
 const R = require(join(ROOT, "js/underwritten/uw-rules.js"));
+const Z = require(join(ROOT, "js/underwritten/uw-zillow.js"));
 const UW = JSON.parse(readFileSync(join(ROOT, "data/underwritten.json"), "utf8"));
 const COMPS = JSON.parse(readFileSync(join(ROOT, "data/comps.json"), "utf8"));
 const GEO = JSON.parse(readFileSync(join(ROOT, "data/geo.json"), "utf8"));
@@ -224,6 +225,26 @@ console.log("\nSTANDARD SETUP LINES: every new sheet carries the five, at Galves
   const placed = WANT.every(([l, a, r]) => key(cell(r)[0]) === key(l) && (base ? cell(r)[1].replace(/[$\s,]/g, "") === String(a) : cell(r)[1] !== ""));
   if (!placed) bad("exported template rows 5/16-19: " + WANT.map(([, , r]) => cell(r).join(" ")).join(" | "));
   console.log("  " + (placed ? "ok  " : "FAIL") + " " + UW.templateFile + ": rows 5, 16, 17, 18, 19 hold " + WANT.map(([, , r]) => cell(r).join(" ")).join(" · "));
+}
+
+// ---------------------------------------------------------------------------
+console.log("\nZILLOW SEARCH LINKS: the frame, the filters, the URL\n");
+{
+  const bad = (m) => fail("zillow: " + m);
+  const parse = (u) => JSON.parse(decodeURIComponent(u.split("searchQueryState=")[1]));
+  const frames = [["whole market", COMPS.marketBbox, listings]].concat(COMPS.areas.map((a) => [a.name, a.bbox, listings.filter((l) => l.area === a.id)]));
+  frames.forEach(([name, b, ls]) => {
+    const q = parse(Z.url(b, { beds: 3, baths: 2 })), m = q.mapBounds;
+    if (!(b[0] < b[2] && b[1] < b[3] && m.south === b[0] && m.north === b[2] && m.west === b[1] && m.east === b[3])) bad(name + ": the frame is not south < north, west < east, or was changed");
+    const inside = ls.filter((l) => l.lat >= b[0] && l.lat <= b[2] && l.lng >= b[1] && l.lng <= b[3]).length;
+    if (inside < ls.length * 0.95) bad(name + ": the frame holds only " + inside + " of its " + ls.length + " comps");
+    if (!(m.south > 34.9 && m.north < 35.5 && m.west > -112 && m.east < -111.3)) bad(name + ": the frame is not round Flagstaff");
+  });
+  const q = parse(Z.url(COMPS.marketBbox, { beds: 3, baths: 2.5 }));
+  if (!(Z.url(COMPS.marketBbox).startsWith("https://www.zillow.com/flagstaff-az/?searchQueryState=") && q.filterState.beds.min === 3 && q.filterState.baths.min === 2.5 && q.isMapVisible && q.usersSearchTerm === "Flagstaff, AZ")) bad("the URL or its filters are not as expected");
+  const any = parse(Z.url(COMPS.marketBbox, { beds: 0, baths: 0 }));
+  if (any.filterState.beds || any.filterState.baths) bad("'Any' beds / baths still sends a minimum");
+  console.log("  " + (failures ? "FAIL" : "ok  ") + " frames for the whole market and the six areas hold their comps (" + frames.map(([n, , ls]) => ls.length).join(", ") + "); URL = zillow.com/flagstaff-az/ + searchQueryState with mapBounds, beds / baths minimums only when set");
 }
 
 // ---------------------------------------------------------------------------
