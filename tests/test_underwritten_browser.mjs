@@ -470,7 +470,7 @@ check(await page.locator("#uw-card-" + pid).isVisible(), "the target's card rend
 {
   const nComps = await ev((pid) => UW.property(pid).versions[0].comps.length, pid);
   const cell = (ci, k) => page.locator("#uw-card-" + pid + ' input[data-sh=comp][data-ci="' + ci + '"][data-k="' + k + '"]');
-  check(nComps >= 3 && await page.locator("#uw-card-" + pid + " input[data-sh=comp]").count() === nComps * 15, "every cell of the " + nComps + " comp rows is an input (15 columns each)");
+  check(nComps >= 3 && await page.locator("#uw-card-" + pid + " input[data-sh=comp]").count() === 15 * 15, "every cell of all 15 comp rows (" + nComps + " filled, the rest blank) is an input");
   const urls0 = await ev((pid) => UW.property(pid).versions[0].comps.map((c) => c.url), pid);
   // Row 2 gets a tiny revenue: it drops to the bottom of the stored order. Then its notes are edited from the SAME on-screen row.
   await cell(1, 1).evaluate((el) => el.closest("tr").setAttribute("data-tmp", "1"));  // this on-screen row, whatever place its comp moves to
@@ -487,6 +487,19 @@ check(await page.locator("#uw-card-" + pid).isVisible(), "the target's card rend
   check(after.order[after.order.length - 1] === urls0[1] && after.others.every((n) => n !== "edited from the sheet"), "the stored comps are re-ordered by revenue, and the later edits on that row still went to the right comp (no other comp's notes changed)");
   check(after.first[after.fl[0]] === 1 && after.first[after.fl[1]] === 0, "amenity cells take 1 / 0 (" + after.fl.join(", ") + ")");
   check(/\$5,000\.00|\$ 5,000/.test(await cell(+(await ev(([pid, u]) => UW.property(pid).versions[0].comps.findIndex((c) => c.url === u[1]), [pid, urls0])), 1).inputValue()), "the saved cell shows the sheet's own money format");
+  // A blank row: type a URL and revenue; the row becomes a comp.
+  {
+    const before = await ev((pid) => UW.property(pid).versions[0].comps.length, pid);
+    const blank = page.locator("#uw-card-" + pid + ' input[data-sh=comp][data-ci="-1"][data-k="0"]').first();
+    await blank.evaluate((el) => el.closest("tr").setAttribute("data-new", "1"));
+    const nr = page.locator("#uw-card-" + pid + " tr[data-new]");
+    await nr.locator('input[data-k="1"]').fill("$ 61,000"); await nr.locator('input[data-k="1"]').press("Tab");
+    check(await ev((pid) => UW.property(pid).versions[0].comps.length, pid) === before, "a blank row with no URL yet stores nothing");
+    await nr.locator('input[data-k="0"]').fill("https://www.airbnb.com/rooms/999001"); await nr.locator('input[data-k="0"]').press("Tab"); await page.waitForTimeout(300);
+    const got = await ev((pid) => { const cs = UW.property(pid).versions[0].comps; const c = cs.find((x) => x.url.endsWith("/999001")); return { n: cs.length, c }; }, pid);
+    check(got.n === before + 1 && got.c && got.c.revenue === 61000, "typing a Listing URL into a blank row adds it as a comp with the revenue typed before");
+    await ev((pid) => { const v = UW.property(pid).versions[0]; UW.setComps(pid, v.label, v.comps.filter((c) => !c.url.endsWith("/999001")), { quiet: true }); UW.cardsApi.renderCard(pid); }, pid);  // not a real listing: take it out again
+  }
   const [dl2] = await Promise.all([page.waitForEvent("download"), ev((pid) => UW.actions.downloadCsv(pid), pid)]);
   const out = C.parse(readFileSync(await dl2.path(), "utf8")), L2 = C.locate(out.rows);
   let seen = null;

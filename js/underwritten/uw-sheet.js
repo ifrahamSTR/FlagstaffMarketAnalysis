@@ -130,7 +130,6 @@
     // row order is the sheet's, which can differ from the stored order), so an edit can't land on another comp.
     for (let i = L.comps.first; i <= L.comps.last; i++) {
       const url = String(rows[i][L.comps.col] || "").trim(), ci = url ? (v.comps || []).findIndex((c) => String(c.url || "").trim() === url) : -1;
-      if (ci < 0) continue;
       for (let k = 0; k < 15; k++) put([i, L.comps.col + k], { sh: "comp", ci, k, f: "comp" });
     }
     return m;
@@ -143,7 +142,7 @@
       ' aria-label="' + E(LABEL[d.sh] + (d.k != null && d.sh === "rev" ? " (" + d.k + ")" : "") + ", cell " + ref(i, j)) + '" spellcheck="false"';
     const t = String(text || "");
     if (d.f === "comp") {
-      const ca = ' data-sh="comp" data-ci="' + d.ci + '" data-k="' + d.k + '" aria-label="' + E("Comp " + (d.ci + 1) + ", " + COMP_LABEL[d.k] + ", cell " + ref(i, j)) + '" spellcheck="false"';
+      const ca = ' data-sh="comp" data-ci="' + d.ci + '" data-k="' + d.k + '" aria-label="' + E((d.ci < 0 ? "New comp row" : "Comp " + (d.ci + 1)) + ", " + COMP_LABEL[d.k] + ", cell " + ref(i, j)) + '" spellcheck="false"';
       return '<td class="sh-in sh-comp sh-comp--' + (d.k === 0 ? "url" : d.k === 14 ? "notes" : d.k > 5 ? "flag" : "n") + '"><input class="sh-input" type="text" value="' + E(t.trim()) + '"' + ca + "></td>";
     }
     if (d.f === "notes") return '<td class="sh-in sh-block"' + spanAttr + '><textarea class="sh-notes"' + attrs + ">" + E(t) + "</textarea></td>";
@@ -230,7 +229,7 @@
     const isUW = p.kind === "underwritten", file = fileOf(p, v);
     const edited = v.source !== "sheet";
     return '<div class="sh-legend"><p><strong>' + E(file.replace(/\.csv$/, "")) + "</strong>" + (isUW ? "" : " <span class=\"muted\">(the template, with this listing’s inputs)</span>") +
-      ' · every cell as the CSV has it, columns A–V. <span class="sh-swatch" aria-hidden="true"></span>Yellow cells are inputs: click one to edit it, and the totals and returns update as you type. The comp table is editable too (URL, revenue, bedrooms, sleeps, ADR, occupancy, the amenity 1 / 0 cells, notes): a change is saved when you leave the cell, and the rows are put back in revenue order the next time the sheet is opened.</p>' +
+      ' · every cell as the CSV has it, columns A–V. <span class="sh-swatch" aria-hidden="true"></span>Yellow cells are inputs: click one to edit it, and the totals and returns update as you type. The comp table is editable too, blank rows included (type the Listing URL and the row becomes a comp; URL, revenue, bedrooms, sleeps, ADR, occupancy, the amenity 1 / 0 cells, notes): a change is saved when you leave the cell, and the rows are put back in revenue order the next time the sheet is opened.</p>' +
       '<p class="sh-legend__edited"' + (edited ? "" : " hidden") + ">Edited: totals and returns are recalculated here. The amortization block stays as the sheet wrote it, and Download UW CSV copies it byte for byte.</p></div>" +
       '<div class="uw-sheet" data-pid="' + E(p.id) + '" data-label="' + E(v.label) + '"><p class="uw-hint">Loading the sheet…</p></div>';
   };
@@ -409,6 +408,7 @@
     if (!c) return;
     const { p, v } = c, ci = +t.dataset.ci, k = +t.dataset.k;
     const cur = v.comps.map((x) => Object.assign({}, x, { flags: Object.assign({}, x.flags) }));
+    if (ci < 0) return addCompRow(t, c, cur);
     const comp = cur[ci];
     if (!comp) return;
     const text = t.value.trim();
@@ -428,8 +428,26 @@
     UW.setComps(p.id, v.label, cur, { quiet: true });
     const order = UWCsv.sortComps(cur), where = new Map(cur.map((x, i) => [i, order.indexOf(x)]));
     const cells = [...c.card.querySelectorAll('[data-sh="comp"]')];
-    cells.forEach((el) => { el.dataset.ci = where.get(+el.dataset.ci); });
+    cells.forEach((el) => { if (+el.dataset.ci >= 0) el.dataset.ci = where.get(+el.dataset.ci); });
     t.value = compText(comp, k);
+    UW.emit("property", p.id);
+  }
+  // A blank row of the comp table: nothing is stored until it has a Listing URL; then the whole row becomes a comp.
+  function addCompRow(t, c, cur) {
+    const { p, v } = c, tr = t.closest("tr"), ins = [...tr.querySelectorAll('[data-sh="comp"]')];
+    const url = ins[0] ? ins[0].value.trim() : "";
+    if (!url) return;   // keep what was typed until the URL is in
+    if (cur.length >= 15) return;
+    const num = (k) => { const x = ins[k].value.trim(); if (!x) return null; const n = parseNum(x); return n == null ? null : n; };
+    const occ = num(5), flags = {};
+    c.st.L.comps.flags.forEach((f, i) => { flags[f] = FLAG_ON.test(ins[6 + i].value.trim()) ? 1 : 0; });
+    const comp = { url, revenue: num(1), bedrooms: num(2), sleeps: num(3), adr: num(4), occupancy: occ == null ? null : Math.round(Math.max(0, occ) * 100) / 10000, flags, notes: ins[14].value };
+    cur.push(comp);
+    UW.setComps(p.id, v.label, cur, { quiet: true });
+    const order = UWCsv.sortComps(cur);
+    ins.forEach((el, k) => { el.dataset.ci = order.indexOf(comp); el.value = compText(comp, k); });
+    const others = [...c.card.querySelectorAll('[data-sh="comp"]')].filter((el) => !ins.includes(el) && +el.dataset.ci >= 0);
+    others.forEach((el) => { const old = cur[+el.dataset.ci]; el.dataset.ci = order.indexOf(old); });
     UW.emit("property", p.id);
   }
   // What a comp cell shows once saved (the sheet's own formats).
