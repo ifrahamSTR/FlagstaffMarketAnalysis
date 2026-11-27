@@ -130,7 +130,7 @@
     // row order is the sheet's, which can differ from the stored order), so an edit can't land on another comp.
     for (let i = L.comps.first; i <= L.comps.last; i++) {
       const url = String(rows[i][L.comps.col] || "").trim(), ci = url ? (v.comps || []).findIndex((c) => String(c.url || "").trim() === url) : -1;
-      for (let k = 0; k < 15; k++) put([i, L.comps.col + k], { sh: "comp", ci, k, f: "comp" });
+      for (let k = 0; k < 15; k++) put([i, L.comps.col + k], { sh: "comp", ci, k, cr: i - L.comps.first, f: "comp" });
     }
     return m;
   }
@@ -142,7 +142,7 @@
       ' aria-label="' + E(LABEL[d.sh] + (d.k != null && d.sh === "rev" ? " (" + d.k + ")" : "") + ", cell " + ref(i, j)) + '" spellcheck="false"';
     const t = String(text || "");
     if (d.f === "comp") {
-      const ca = ' data-sh="comp" data-ci="' + d.ci + '" data-k="' + d.k + '" aria-label="' + E((d.ci < 0 ? "New comp row" : "Comp " + (d.ci + 1)) + ", " + COMP_LABEL[d.k] + ", cell " + ref(i, j)) + '" spellcheck="false"';
+      const ca = ' data-sh="comp" data-ci="' + d.ci + '" data-cr="' + d.cr + '" data-k="' + d.k + '" aria-label="' + E((d.ci < 0 ? "New comp row" : "Comp " + (d.ci + 1)) + ", " + COMP_LABEL[d.k] + ", cell " + ref(i, j)) + '" spellcheck="false"';
       return '<td class="sh-in sh-comp sh-comp--' + (d.k === 0 ? "url" : d.k === 14 ? "notes" : d.k > 5 ? "flag" : "n") + '"><input class="sh-input" type="text" value="' + E(t.trim()) + '"' + ca + "></td>";
     }
     if (d.f === "notes") return '<td class="sh-in sh-block"' + spanAttr + '><textarea class="sh-notes"' + attrs + ">" + E(t) + "</textarea></td>";
@@ -229,7 +229,7 @@
     const isUW = p.kind === "underwritten", file = fileOf(p, v);
     const edited = v.source !== "sheet";
     return '<div class="sh-legend"><p><strong>' + E(file.replace(/\.csv$/, "")) + "</strong>" + (isUW ? "" : " <span class=\"muted\">(the template, with this listing’s inputs)</span>") +
-      ' · every cell as the CSV has it, columns A–V. <span class="sh-swatch" aria-hidden="true"></span>Yellow cells are inputs: click one to edit it, and the totals and returns update as you type. The comp table is editable too, blank rows included (type the Listing URL and the row becomes a comp; URL, revenue, bedrooms, sleeps, ADR, occupancy, the amenity 1 / 0 cells, notes): a change is saved when you leave the cell, and the rows are put back in revenue order the next time the sheet is opened.</p>' +
+      ' · every cell as the CSV has it, columns A–V. <span class="sh-swatch" aria-hidden="true"></span>Yellow cells are inputs: click one to edit it, and the totals and returns update as you type. The comp table works like Google Sheets: paste rows copied from Sheets or Excel into any cell and they fill right and down; drag, Shift+click or click a row number to select, then copy, cut or Delete; arrows and Enter move between cells. A row with a Listing URL is a comp; the rows are put back in revenue order the next time the sheet is opened.</p>' +
       '<p class="sh-legend__edited"' + (edited ? "" : " hidden") + ">Edited: totals and returns are recalculated here. The amortization block stays as the sheet wrote it, and Download UW CSV copies it byte for byte.</p></div>" +
       '<div class="uw-sheet" data-pid="' + E(p.id) + '" data-label="' + E(v.label) + '"><p class="uw-hint">Loading the sheet…</p></div>';
   };
@@ -398,60 +398,268 @@
     if (td && td.querySelector(".sh-acct")) td.classList.toggle("is-empty", !s.trim());
   }
 
-  // A comp-table cell, saved when you leave it. The stored comps are kept in revenue order (as everywhere), so a row's
-  // place can change; every comp cell on screen is re-pointed to its comp's new place, so later edits still hit the right row.
+  // ---------------------------------------------------------------------------
+  // The comp table works like a spreadsheet grid (Google Sheets / Excel):
+  //  - paste a block (rows x columns, tab separated, as Sheets and Excel copy it) from the cell
+  //    you are in: it fills to the right and down; a header row ("Listing URL ...") is skipped;
+  //    one value pasted onto a selected range fills the range;
+  //  - click-drag, Shift+click or Shift+arrows select a range; the row number selects a row;
+  //    Cmd/Ctrl+C copies the range as tab-separated rows, Cmd/Ctrl+X cuts, Delete clears;
+  //  - arrows move between cells (Left/Right once the caret is at the edge of the text),
+  //    Enter moves down, Tab moves right, Esc puts the cell back.
+  // A row is a comp once it has a Listing URL; clearing the URL takes the comp out (with Undo).
+  // The stored comps stay in revenue order; on screen the rows don't jump (each row's data-ci
+  // is re-pointed to its comp's place in the stored order).
+  // ---------------------------------------------------------------------------
   const FLAG_ON = /^(1|y|yes|true|x|✓)$/i;
-  function onCompChange(e) {
-    const t = e.target;
-    if (!t.dataset || t.dataset.sh !== "comp") return;
-    const c = ctx(t);
-    if (!c) return;
-    const { p, v } = c, ci = +t.dataset.ci, k = +t.dataset.k;
-    const cur = v.comps.map((x) => Object.assign({}, x, { flags: Object.assign({}, x.flags) }));
-    if (ci < 0) return addCompRow(t, c, cur);
-    const comp = cur[ci];
-    if (!comp) return;
-    const text = t.value.trim();
-    const back = () => { t.value = compText(comp, k); };
-    if (k === 0) { if (!text) return back(); comp.url = text; delete comp.id; }
-    else if (k >= 1 && k <= 5) {
-      const f = [null, "revenue", "bedrooms", "sleeps", "adr", "occupancy"][k];
-      if (!text) comp[f] = null;
-      else {
+  const NCOMP = 15, NROW = 15;
+  let sel = null, dragging = false;   // sel = {card, ar, ak (anchor), r, k (other corner)}
+
+  const compCell = (card, r, k) => card.querySelector('input[data-sh="comp"][data-cr="' + r + '"][data-k="' + k + '"]');
+  const isComp = (t) => t && t.dataset && t.dataset.sh === "comp";
+  const rect = (s) => ({ r0: Math.min(s.ar, s.r), r1: Math.max(s.ar, s.r), k0: Math.min(s.ak, s.k), k1: Math.max(s.ak, s.k) });
+  const multi = () => sel && (sel.ar !== sel.r || sel.ak !== sel.k);
+
+  function paint() {
+    document.querySelectorAll(".sh-t td.is-sel").forEach((td) => td.classList.remove("is-sel", "sel-t", "sel-b", "sel-l", "sel-r"));
+    if (!multi() || !sel.card.isConnected) return;
+    const R = rect(sel);
+    for (let r = R.r0; r <= R.r1; r++) for (let k = R.k0; k <= R.k1; k++) {
+      const el = compCell(sel.card, r, k), td = el && el.closest("td");
+      if (!td) continue;
+      td.classList.add("is-sel");
+      if (r === R.r0) td.classList.add("sel-t");
+      if (r === R.r1) td.classList.add("sel-b");
+      if (k === R.k0) td.classList.add("sel-l");
+      if (k === R.k1) td.classList.add("sel-r");
+    }
+  }
+  function setSel(card, ar, ak, r, k) { sel = { card, ar, ak, r: r == null ? ar : r, k: k == null ? ak : k }; paint(); }
+  function goTo(card, r, k, extend) {
+    r = Math.max(0, Math.min(NROW - 1, r)); k = Math.max(0, Math.min(NCOMP - 1, k));
+    if (extend && sel && sel.card === card) { sel.r = r; sel.k = k; paint(); const el = compCell(card, r, k); if (el) el.scrollIntoView({ block: "nearest", inline: "nearest" }); return; }
+    const el = compCell(card, r, k);
+    if (!el) return;
+    setSel(card, r, k);
+    el.focus();
+  }
+
+  // Tab-separated text as Sheets / Excel put it on the clipboard (a cell with a tab, newline or quote is quoted).
+  function parseTSV(text) {
+    const rows = [];
+    let row = [], cell = "", q = false, i = 0;
+    text = String(text).replace(/\r\n?/g, "\n");
+    for (; i < text.length; i++) {
+      const ch = text[i];
+      if (q) {
+        if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+        else if (ch === '"') q = false;
+        else cell += ch;
+      } else if (ch === '"' && cell === "") q = true;
+      else if (ch === "\t") { row.push(cell); cell = ""; }
+      else if (ch === "\n") { row.push(cell); rows.push(row); row = []; cell = ""; }
+      else cell += ch;
+    }
+    if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
+    return rows;
+  }
+  const tsvCell = (x) => (/[\t\n"]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x);
+
+  // Read the cells of the touched rows back into comps and save. touched = Set of inputs whose text changed.
+  function syncComps(card, touched) {
+    const c = ctx(card);
+    if (!c || !c.st) return;
+    const { p, v } = c, flagKeys = c.st.L.comps.flags, prev = v.comps || [];
+    const rowsTouched = new Set([...touched].map((el) => +el.dataset.cr));
+    const out = [], rowComp = [];
+    let bad = 0;
+    for (let r = 0; r < NROW; r++) {
+      const ins = []; for (let k = 0; k < NCOMP; k++) ins.push(compCell(card, r, k));
+      if (!ins[0]) { rowComp.push(null); continue; }
+      const ci = +ins[0].dataset.ci, old = ci >= 0 ? prev[ci] : null;
+      if (!rowsTouched.has(r)) { if (old) { out.push(old); rowComp.push(old); } else rowComp.push(null); continue; }
+      const url = ins[0].value.trim();
+      if (!url) { rowComp.push(null); continue; }   // not a comp (yet): what was typed stays on screen
+      const comp = old ? Object.assign({}, old, { flags: Object.assign({}, old.flags) }) : { url, revenue: null, bedrooms: null, sleeps: null, adr: null, occupancy: null, flags: {}, notes: "" };
+      if (comp.url !== url) { comp.url = url; delete comp.id; delete comp.match; }
+      ["revenue", "bedrooms", "sleeps", "adr", "occupancy"].forEach((f, j) => {
+        const el = ins[j + 1], text = el.value.trim();
+        if (!touched.has(el) && old) return;
+        if (!text) { comp[f] = null; return; }
         let n = parseNum(text);
-        if (n == null) return back();
-        if (k === 5) n = Math.round(Math.max(0, n) * 100) / 10000;   // typed as a percent, as the sheet shows it
+        if (n == null) { bad++; return; }   // not a number: the cell goes back to what it was
+        // Occupancy: "41.5%" or "41.5" is a percent; 0.415 (a fraction, as some sheets copy it) is taken as is.
+        if (f === "occupancy") n = /%/.test(text) || n > 1 ? Math.round(Math.max(0, n) * 100) / 10000 : Math.max(0, n);
         comp[f] = n;
+      });
+      flagKeys.forEach((f, j) => { const el = ins[6 + j]; if (touched.has(el) || !old) comp.flags[f] = FLAG_ON.test(el.value.trim()) ? 1 : 0; });
+      if (touched.has(ins[14]) || !old) comp.notes = ins[14].value;
+      out.push(comp); rowComp.push(comp);
+    }
+    const removed = prev.filter((x) => !out.includes(x));
+    const before = prev.map((x) => Object.assign({}, x, { flags: Object.assign({}, x.flags) }));
+    UW.setComps(p.id, v.label, out, { quiet: true });
+    const order = UWCsv.sortComps(out);
+    rowComp.forEach((comp, r) => {
+      for (let k = 0; k < NCOMP; k++) {
+        const el = compCell(card, r, k);
+        if (!el) continue;
+        el.dataset.ci = comp ? order.indexOf(comp) : -1;
+        if (comp && rowsTouched.has(r)) el.value = compText(comp, k, flagKeys);
       }
-    } else if (k >= 6 && k <= 13) comp.flags[c.st.L.comps.flags[k - 6]] = FLAG_ON.test(text) ? 1 : 0;
-    else comp.notes = t.value;
-    UW.setComps(p.id, v.label, cur, { quiet: true });
-    const order = UWCsv.sortComps(cur), where = new Map(cur.map((x, i) => [i, order.indexOf(x)]));
-    const cells = [...c.card.querySelectorAll('[data-sh="comp"]')];
-    cells.forEach((el) => { if (+el.dataset.ci >= 0) el.dataset.ci = where.get(+el.dataset.ci); });
-    t.value = compText(comp, k);
+    });
+    if (bad) UW.toast(bad + " cell" + (bad === 1 ? " was" : "s were") + " not a number and kept the old value", "warn");
+    if (removed.length) {
+      UW.toast(removed.length + " comp" + (removed.length === 1 ? "" : "s") + " taken out (Listing URL cleared)", "", { label: "Undo", fn: () => {
+        UW.setComps(p.id, v.label, before, { quiet: true }); UW.cardsApi.renderCard(p.id); UW.emit("property", p.id);
+      } });
+    }
     UW.emit("property", p.id);
   }
-  // A blank row of the comp table: nothing is stored until it has a Listing URL; then the whole row becomes a comp.
-  function addCompRow(t, c, cur) {
-    const { p, v } = c, tr = t.closest("tr"), ins = [...tr.querySelectorAll('[data-sh="comp"]')];
-    const url = ins[0] ? ins[0].value.trim() : "";
-    if (!url) return;   // keep what was typed until the URL is in
-    if (cur.length >= 15) return;
-    const num = (k) => { const x = ins[k].value.trim(); if (!x) return null; const n = parseNum(x); return n == null ? null : n; };
-    const occ = num(5), flags = {};
-    c.st.L.comps.flags.forEach((f, i) => { flags[f] = FLAG_ON.test(ins[6 + i].value.trim()) ? 1 : 0; });
-    const comp = { url, revenue: num(1), bedrooms: num(2), sleeps: num(3), adr: num(4), occupancy: occ == null ? null : Math.round(Math.max(0, occ) * 100) / 10000, flags, notes: ins[14].value };
-    cur.push(comp);
-    UW.setComps(p.id, v.label, cur, { quiet: true });
-    const order = UWCsv.sortComps(cur);
-    ins.forEach((el, k) => { el.dataset.ci = order.indexOf(comp); el.value = compText(comp, k); });
-    const others = [...c.card.querySelectorAll('[data-sh="comp"]')].filter((el) => !ins.includes(el) && +el.dataset.ci >= 0);
-    others.forEach((el) => { const old = cur[+el.dataset.ci]; el.dataset.ci = order.indexOf(old); });
-    UW.emit("property", p.id);
+
+  function writeCells(card, cells) {   // cells: [[r, k, text]]
+    const touched = new Set();
+    cells.forEach(([r, k, text]) => { const el = compCell(card, r, k); if (el && el.value !== text) { el.value = text; touched.add(el); } });
+    if (touched.size) syncComps(card, touched);
+    return touched.size;
   }
+  function rangeText(card) {
+    const R = rect(sel), lines = [];
+    for (let r = R.r0; r <= R.r1; r++) {
+      const row = [];
+      for (let k = R.k0; k <= R.k1; k++) { const el = compCell(card, r, k); row.push(tsvCell(el ? el.value : "")); }
+      lines.push(row.join("\t"));
+    }
+    return lines.join("\n");
+  }
+  function clearRange(card) {
+    const R = rect(sel), cells = [];
+    for (let r = R.r0; r <= R.r1; r++) for (let k = R.k0; k <= R.k1; k++) cells.push([r, k, ""]);
+    writeCells(card, cells);
+  }
+
+  function onPaste(e) {
+    const t = e.target;
+    if (!isComp(t)) return;
+    const text = (e.clipboardData || window.clipboardData).getData("text/plain") || "";
+    let grid = parseTSV(text);
+    const one = grid.length === 1 && grid[0].length === 1;
+    if (one && !multi()) return;   // a single value into a single cell: the normal paste (saved when you leave the cell)
+    e.preventDefault();
+    const card = t.closest(".uw-card");
+    if (grid.length && /listing\s*url/i.test(grid[0][0] || "")) grid = grid.slice(1);   // a copied header row
+    if (!grid.length) return;
+    const cells = [];
+    let lost = 0;
+    if (one) {
+      const R = rect(sel);
+      for (let r = R.r0; r <= R.r1; r++) for (let k = R.k0; k <= R.k1; k++) cells.push([r, k, grid[0][0].trim()]);
+    } else {
+      const R = multi() ? rect(sel) : null, r0 = R ? R.r0 : +t.dataset.cr, k0 = R ? R.k0 : +t.dataset.k;
+      grid.forEach((row, i) => row.forEach((x, j) => {
+        if (r0 + i < NROW && k0 + j < NCOMP) cells.push([r0 + i, k0 + j, x.trim()]); else if (x.trim()) lost++;
+      }));
+      const h = Math.min(grid.length, NROW - r0), w = Math.min(Math.max(...grid.map((r) => r.length)), NCOMP - k0);
+      setSel(card, r0, k0, r0 + h - 1, k0 + w - 1);
+    }
+    writeCells(card, cells);
+    if (lost) UW.toast(lost + " pasted cell" + (lost === 1 ? "" : "s") + " fell outside the comp table (15 rows x 15 columns) and were left out", "warn");
+  }
+  function onCopy(e, cut) {
+    const t = e.target;
+    if (!isComp(t) || !multi() || sel.card !== t.closest(".uw-card")) return;
+    e.preventDefault();
+    e.clipboardData.setData("text/plain", rangeText(sel.card));
+    if (cut) clearRange(sel.card);
+  }
+  function onKey(e) {
+    const t = e.target;
+    if (!isComp(t)) return;
+    const card = t.closest(".uw-card"), r = +t.dataset.cr, k = +t.dataset.k;
+    const len = t.value.length, a = t.selectionStart, b = t.selectionEnd, all = a === 0 && b === len;
+    if (!sel || sel.card !== card || (!multi() && (sel.ar !== r || sel.ak !== k))) setSel(card, r, k);
+    const sr = sel.r, sk = sel.k;   // the moving corner
+    switch (e.key) {
+      case "ArrowUp": case "ArrowDown": {
+        e.preventDefault();
+        const d = e.key === "ArrowUp" ? -1 : 1;
+        if (e.shiftKey) goTo(card, sr + d, sk, true); else { t.blur(); goTo(card, r + d, k); }
+        return;
+      }
+      case "ArrowLeft": case "ArrowRight": {
+        const d = e.key === "ArrowLeft" ? -1 : 1;
+        if (e.shiftKey && (all || multi())) { e.preventDefault(); goTo(card, sr, sk + d, true); return; }
+        if (e.shiftKey) return;   // selecting text inside the cell
+        if (all || (d < 0 && a === 0 && b === 0) || (d > 0 && a === len && b === len)) { e.preventDefault(); t.blur(); goTo(card, r, k + d); }
+        return;
+      }
+      case "Enter": e.preventDefault(); t.blur(); goTo(card, r + (e.shiftKey ? -1 : 1), k); return;
+      case "Delete": case "Backspace":
+        if (multi()) { e.preventDefault(); clearRange(card); }
+        return;
+      case "Escape": {
+        const c = ctx(card), ci = +t.dataset.ci, comp = c && ci >= 0 ? c.v.comps[ci] : null;
+        t.value = comp ? compText(comp, k, c.st.L.comps.flags) : "";
+        t.select();
+        return;
+      }
+      case "a":
+        if ((e.metaKey || e.ctrlKey) && all) { e.preventDefault(); setSel(card, 0, 0, NROW - 1, NCOMP - 1); }   // second Cmd+A: the whole table
+        return;
+    }
+    if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && multi()) setSel(card, r, k);   // typing collapses the range to the cell
+  }
+  function onDown(e) {
+    const th = e.target.closest && e.target.closest("th.sh-row");
+    if (th) {   // a row number: select that comp row
+      const tr = th.parentElement, el = tr.querySelector('input[data-sh="comp"]');
+      if (!el) return;
+      e.preventDefault();
+      const card = el.closest(".uw-card"), r = +el.dataset.cr;
+      if (e.shiftKey && sel && sel.card === card) { sel.ak = 0; sel.r = r; sel.k = NCOMP - 1; paint(); return; }
+      else setSel(card, r, 0, r, NCOMP - 1);
+      el.focus({ preventScroll: true }); el.select();
+      return;
+    }
+    const t = e.target;
+    if (!isComp(t)) { if (sel && !(e.target.closest && e.target.closest(".uw-toast"))) { sel = null; paint(); } return; }
+    const card = t.closest(".uw-card"), r = +t.dataset.cr, k = +t.dataset.k;
+    if (e.shiftKey && sel && sel.card === card) { e.preventDefault(); sel.r = r; sel.k = k; paint(); return; }
+    setSel(card, r, k);
+    dragging = true;
+    // As in Sheets, the first click selects the cell (typing replaces it; double-click edits inside it).
+    // It also stops the browser treating a drag from here as text selection, which scrolls the sheet.
+    if ((document.activeElement !== t || !t.dataset.editing) && e.button === 0) { e.preventDefault(); t.focus({ preventScroll: true }); t.select(); }
+  }
+  function onOver(e) {
+    if (!dragging || !sel) return;
+    const td = e.target.closest && e.target.closest("td"), el = td && td.querySelector('input[data-sh="comp"]');
+    if (!el || el.closest(".uw-card") !== sel.card) return;
+    const r = +el.dataset.cr, k = +el.dataset.k;
+    if (r === sel.r && k === sel.k) return;
+    sel.r = r; sel.k = k; paint();
+    const a = compCell(sel.card, sel.ar, sel.ak);
+    if (a && document.activeElement === a && a.setSelectionRange) a.setSelectionRange(0, a.value.length);
+  }
+  function initGrid(lists) {
+    lists.addEventListener("change", (e) => { if (isComp(e.target)) syncComps(e.target.closest(".uw-card"), new Set([e.target])); });
+    lists.addEventListener("paste", onPaste);
+    lists.addEventListener("copy", (e) => onCopy(e, false));
+    lists.addEventListener("cut", (e) => onCopy(e, true));
+    lists.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onDown);
+    lists.addEventListener("mouseover", onOver);
+    // Edit mode (caret inside the cell): after typing in it or a double-click. Otherwise a drag selects cells.
+    lists.addEventListener("dblclick", (e) => { if (isComp(e.target)) { const n = e.target.value.length; e.target.dataset.editing = "1"; e.target.setSelectionRange(n, n); } });
+    lists.addEventListener("input", (e) => { if (isComp(e.target)) e.target.dataset.editing = "1"; });
+    lists.addEventListener("focusout", (e) => { if (isComp(e.target)) delete e.target.dataset.editing; });
+    document.addEventListener("mouseup", () => { dragging = false; });
+    UW.on && UW.on("property", () => { if (sel && !sel.card.isConnected) { sel = null; } });
+  }
+
   // What a comp cell shows once saved (the sheet's own formats).
-  function compText(c, k) {
+  function compText(c, k, flags) {
+    if (k >= 6 && k <= 13) return flags && c.flags ? (c.flags[flags[k - 6]] ? "1" : "0") : "";
     switch (k) {
       case 0: return c.url || "";
       case 1: return c.revenue == null ? "" : UWCsv.dollars2(c.revenue);
@@ -466,7 +674,7 @@
 
   S.init = function () {
     const lists = document.getElementById("uw-lists");
-    lists.addEventListener("change", onCompChange);
+    initGrid(lists);
     lists.addEventListener("input", onInput);
     lists.addEventListener("focusin", onFocus);
     lists.addEventListener("focusout", onBlur);

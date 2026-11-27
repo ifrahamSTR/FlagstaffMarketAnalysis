@@ -500,6 +500,49 @@ check(await page.locator("#uw-card-" + pid).isVisible(), "the target's card rend
     check(got.n === before + 1 && got.c && got.c.revenue === 61000, "typing a Listing URL into a blank row adds it as a comp with the revenue typed before");
     await ev((pid) => { const v = UW.property(pid).versions[0]; UW.setComps(pid, v.label, v.comps.filter((c) => !c.url.endsWith("/999001")), { quiet: true }); UW.cardsApi.renderCard(pid); }, pid);  // not a real listing: take it out again
   }
+  // Google Sheets behaviour: paste a block, select a range, copy it, Delete it (with Undo), arrows.
+  {
+    const card = "#uw-card-" + pid;
+    const n0 = await ev((pid) => UW.property(pid).versions[0].comps.length, pid);
+    const r0 = await page.locator(card + ' input[data-sh=comp][data-ci="-1"][data-k="0"]').first().getAttribute("data-cr");
+    const tsv = "Listing URL\tRevenue Potential\tBedrooms\tSleeps\tADR\tOccupancy\tHAS_hot_tub\n" +
+      "https://www.airbnb.com/rooms/999101\t$71,000\t4\t10\t$350\t35%\t1\n" +
+      "https://www.airbnb.com/rooms/999102\t52000\t3\t8\t275.5\t0.42\t0\n";
+    await page.locator(card + ' input[data-sh=comp][data-cr="' + r0 + '"][data-k="0"]').evaluate((el, t) => {
+      el.focus(); const dt = new DataTransfer(); dt.setData("text/plain", t);
+      el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    }, tsv);
+    await page.waitForTimeout(200);
+    const got = await ev((pid) => { const cs = UW.property(pid).versions[0].comps, f = UW.data.uw.sheetFlags[0];
+      return { n: cs.length, a: cs.find((c) => c.url.endsWith("/999101")), b: cs.find((c) => c.url.endsWith("/999102")), f }; }, pid);
+    check(got.n === n0 + 2 && got.a && got.a.revenue === 71000 && got.a.bedrooms === 4 && got.a.sleeps === 10 && got.a.adr === 350 && Math.abs(got.a.occupancy - 0.35) < 1e-9 && got.a.flags[got.f] === 1,
+      "pasting 2 rows x 7 columns (with a header row) from Sheets fills right and down: 2 comps with every value: " + JSON.stringify(got.a));
+    check(got.b && got.b.revenue === 52000 && Math.abs(got.b.occupancy - 0.42) < 1e-9 && got.b.flags[got.f] === 0, "a fraction occupancy (0.42) and a plain 52000 are read right");
+    check(await page.locator(card + " td.is-sel").count() === 14, "the pasted block is shown selected (2 x 7 cells)");
+    // Drag-select the two rows' first two cells, then copy.
+    const box = async (r, k) => (await page.locator(card + ' input[data-sh=comp][data-cr="' + r + '"][data-k="' + k + '"]').boundingBox());
+    await page.locator(card + ' input[data-sh=comp][data-cr="' + r0 + '"][data-k="0"]').evaluate((el) => el.closest('tr').scrollIntoView({ block: 'center', behavior: 'instant' }));
+    await page.waitForTimeout(100);
+    const a = await box(+r0, 0), b = await box(+r0 + 1, 1);
+    await page.mouse.move(a.x + 5, a.y + a.height / 2); await page.mouse.down();
+    await page.mouse.move(b.x + 5, b.y + b.height / 2, { steps: 6 }); await page.mouse.up();
+    check(await page.locator(card + " td.is-sel").count() === 4, "drag selects a 2 x 2 range");
+    const copied = await ev(() => { const dt = new DataTransfer(); document.activeElement.dispatchEvent(new ClipboardEvent("copy", { clipboardData: dt, bubbles: true, cancelable: true })); return dt.getData("text/plain"); });
+    const lines = copied.split("\n");
+    check(lines.length === 2 && lines[0].split("\t").length === 2 && /999101$/.test(lines[0].split("\t")[0]) && /71,000/.test(lines[0].split("\t")[1]), "Cmd/Ctrl+C copies the range as tab-separated rows: " + JSON.stringify(lines[0]));
+    await page.keyboard.press("Delete"); await page.waitForTimeout(200);
+    check(await ev((pid) => UW.property(pid).versions[0].comps.length, pid) === n0, "Delete clears the range; rows without a URL stop being comps");
+    await page.locator(".uw-toast__act").last().click(); await page.waitForTimeout(300);
+    check(await ev((pid) => UW.property(pid).versions[0].comps.length, pid) === n0 + 2, "Undo brings the cleared comps back");
+    // Arrows.
+    await page.locator(card + ' input[data-sh=comp][data-cr="0"][data-k="1"]').click(); await page.keyboard.press("ArrowDown");
+    let at = await ev(() => [document.activeElement.dataset.cr, document.activeElement.dataset.k].join(","));
+    check(at === "1,1", "ArrowDown moves one row down (" + at + ")");
+    await page.keyboard.press("ArrowRight"); await page.keyboard.press("Enter");
+    at = await ev(() => [document.activeElement.dataset.cr, document.activeElement.dataset.k].join(","));
+    check(at === "2,2", "ArrowRight then Enter: one right, one down (" + at + ")");
+    await ev((pid) => { const v = UW.property(pid).versions[0]; UW.setComps(pid, v.label, v.comps.filter((c) => !/\/9991\d\d$/.test(c.url)), { quiet: true }); UW.cardsApi.renderCard(pid); }, pid);
+  }
   const [dl2] = await Promise.all([page.waitForEvent("download"), ev((pid) => UW.actions.downloadCsv(pid), pid)]);
   const out = C.parse(readFileSync(await dl2.path(), "utf8")), L2 = C.locate(out.rows);
   let seen = null;

@@ -886,3 +886,25 @@ td.sh-in.sh-block { vertical-align: top !important; }
 .uw-tray__mark { font-size: 0.8rem; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 5px; }
 .uw-tray__mark select { font: inherit; font-size: 0.8rem; padding: 3px 22px 3px 7px; border: 1px solid var(--color-border); border-radius: 6px; background-color: #fff; color: var(--text-primary); }
 .uw-dtip__mine { color: var(--uw-good) !important; font-weight: 700; }
+
+/* Comp table range selection, as Google Sheets draws it: light blue fill, blue outline round the range. */
+.sh-t td.sh-comp.is-sel { background: #e7f0fd !important; }
+.sh-t td.sh-comp.is-sel.sel-t { box-shadow: inset 0 2px 0 #1a73e8; }
+.sh-t td.sh-comp.is-sel.sel-b { box-shadow: inset 0 -2px 0 #1a73e8; }
+.sh-t td.sh-comp.is-sel.sel-l { box-shadow: inset 2px 0 0 #1a73e8; }
+.sh-t td.sh-comp.is-sel.sel-r { box-shadow: inset -2px 0 0 #1a73e8; }
+.sh-t td.sh-comp.is-sel.sel-t.sel-l { box-shadow: inset 0 2px 0 #1a73e8, inset 2px 0 0 #1a73e8; }
+.sh-t td.sh-comp.is-sel.sel-t.sel-r { box-shadow: inset 0 2px 0 #1a73e8, inset -2px 0 0 #1a73e8; }
+.sh-t td.sh-comp.is-sel.sel-b.sel-l { box-shadow: inset 0 -2px 0 #1a73e8, inset 2px 0 0 #1a73e8; }
+.sh-t td.sh-comp.is-sel.sel-b.sel-r { box-shadow: inset 0 -2px 0 #1a73e8, inset -2px 0 0 #1a73e8; }
+.sh-t td.sh-comp.is-sel.sel-t.sel-b { box-shadow: inset 0 2px 0 #1a73e8, inset 0 -2px 0 #1a73e8; }
+.sh-t td.sh-comp.is-sel.sel-l.sel-r { box-shadow: inset 2px 0 0 #1a73e8, inset -2px 0 0 #1a73e8; }
+.sh-t td.sh-comp.is-sel.sel-t.sel-b.sel-l { box-shadow: inset 0 2px 0 #1a73e8, inset 0 -2px 0 #1a73e8, inset 2px 0 0 #1a73e8; }
+.sh-t td.sh-comp.is-sel.sel-t.sel-b.sel-r { box-shadow: inset 0 2px 0 #1a73e8, inset 0 -2px 0 #1a73e8, inset -2px 0 0 #1a73e8; }
+.sh-t td.sh-comp.is-sel.sel-t.sel-l.sel-r { box-shadow: inset 0 2px 0 #1a73e8, inset 2px 0 0 #1a73e8, inset -2px 0 0 #1a73e8; }
+.sh-t td.sh-comp.is-sel.sel-b.sel-l.sel-r { box-shadow: inset 0 -2px 0 #1a73e8, inset 2px 0 0 #1a73e8, inset -2px 0 0 #1a73e8; }
+.sh-t td.sh-comp.is-sel.sel-t.sel-b.sel-l.sel-r { box-shadow: inset 0 0 0 2px #1a73e8; }
+.sh-t td.sh-comp.is-sel .sh-input::selection { background: transparent; }
+.sh-t tbody tr:has(td.sh-comp) > th.sh-row { cursor: e-resize; }
+.sh-t td.sh-comp .sh-input { cursor: cell; }
+.sh-t td.sh-comp .sh-input:focus { cursor: text; }

@@ -34,9 +34,15 @@ Static site (no build step for the page): the Santa Rosa Beach / Gulf Shores **U
 - No default revenue floor (`minRevDefault` null): the market median is about $47k (top 25% from $66k, top 10% from $91k), so the coastal pages' $90k would hide most homes. Set one with "Revenue ≥" above the map.
 - `../notebooks/flagstaff_city_tiger.json` (TIGERweb, fetched 2026-11-26) and `../notebooks/flagstaff_geo.json` (Overpass, 2026-11-26) are the cached geography; the build copies them into `data/geo.json`.
 
-## Sheet tab: editable comp table
+## Sheet tab: the comp table works like Google Sheets
 
-In a target's Sheet tab (the UW sheet cell for cell) the comp table is editable too: URL, Revenue Potential, Bedrooms, Sleeps, ADR, Occupancy (type it as a percent), the eight amenity 1 / 0 cells and Notes. A cell is saved when you leave it, in the same yellow-input style as the other cells, and Download UW CSV carries the edits. A row is tied to its comp by its URL, and the stored comps stay in revenue order, so a revenue edit can move a comp but later edits on that row still land on the right comp; the on-screen rows re-sort the next time the sheet is opened. Rows are existing comps only (add comps from the map or lists).
+In a target's Sheet tab, the comp table (Listing URL, Revenue Potential, Bedrooms, Sleeps, ADR, Occupancy, the eight amenity 1 / 0 cells, Notes; 15 rows) behaves like a spreadsheet grid (`uw-sheet.js`, `initGrid`):
+
+- **Paste a block** copied from Google Sheets or Excel into any cell: it fills right and down from that cell. A header row starting "Listing URL" is skipped. One value pasted onto a selected range fills the whole range. Cells that fall outside the 15 x 15 table are left out (a toast says how many).
+- **Select** by dragging, Shift+click, Shift+arrows, or clicking a row number (the whole comp row). Cmd/Ctrl+C copies the range as tab-separated rows (pastes straight into Sheets / Excel), Cmd/Ctrl+X cuts, Delete clears it. A second Cmd/Ctrl+A selects the whole table.
+- **Move** with the arrows (Left / Right once the caret is at the edge of the text), Enter / Shift+Enter down / up, Tab right. The first click selects a cell; typing replaces it; a double-click edits inside it; Esc puts the cell back.
+- **Values:** money and numbers as Sheets shows them ($61,000, 61000); occupancy as 41.5% or 41.5 (a percent) or 0.415 (a fraction); amenities 1 / 0 (also yes, x, true). A cell that isn't a number keeps its old value.
+- A row with a Listing URL is a comp; clearing the URL takes the comp out (Undo in the toast). The stored comps stay in revenue order and on-screen rows don't jump; they re-sort the next time the sheet is opened. Download UW CSV carries everything.
 
 ## OPEX defaults by size (new listings)
 
